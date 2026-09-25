@@ -1,0 +1,87 @@
+# GitHub'a yüklenince:
+#  1) Android APK derlenir  -> Actions > son çalışma > "Puantajim-APK"
+#  2) Web uygulaması (iPhone "Ana Ekrana Ekle" için) GitHub Pages'te yayınlanır
+name: Derle ve Yayınla
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  derle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Android klasörünü oluştur (mevcut dosyalara dokunmaz)
+        run: flutter create --platforms=android,web --org com.santiye --project-name puantajim .
+
+      - name: Uygulama adı ve simgesi
+        run: |
+          sed -i 's/android:label="puantajim"/android:label="Puantajım"/' android/app/src/main/AndroidManifest.xml
+          if [ -d android_ikon ]; then cp -r android_ikon/* android/app/src/main/res/; fi
+
+      - name: Sabit imza anahtarı (APK güncellemeleri eski sürümün üzerine kurulabilsin)
+        run: |
+          if [ -f android_imza/debug.keystore ]; then
+            mkdir -p ~/.android
+            cp android_imza/debug.keystore ~/.android/debug.keystore
+          else
+            echo "UYARI: android_imza/debug.keystore bulunamadı"
+          fi
+
+      - name: Bağımlılıklar
+        run: flutter pub get
+
+      - name: Hesap testleri
+        run: flutter test
+
+      - name: APK derle
+        run: flutter build apk --release
+
+      - name: Web uygulamasını derle
+        run: |
+          flutter build web --release --no-web-resources-cdn --base-href "/${{ github.event.repository.name }}/"
+          dart run tool/pwa_hazirla.dart
+
+      - name: APK'yı yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Puantajim-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  yayinla:
+    needs: derle
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.dagit.outputs.page_url }}
+    steps:
+      - id: dagit
+        uses: actions/deploy-pages@v4
