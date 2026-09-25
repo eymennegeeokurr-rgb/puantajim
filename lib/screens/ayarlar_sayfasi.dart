@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../data/depo.dart';
@@ -42,10 +42,10 @@ class AyarlarSayfasi extends StatelessWidget {
     );
     if (onay != true) return;
 
-    final sonuc =
-        await FilePicker.pickFiles(type: FileType.any, withData: true);
-    final veri = sonuc?.files.single.bytes;
-    if (veri == null) return;
+    // Dosya seçici (Android: Dosyalar uygulaması, iPhone/web: tarayıcı seçicisi)
+    final dosya = await openFile();
+    if (dosya == null) return;
+    final veri = await dosya.readAsBytes();
     try {
       await Depo.instance.yedektenYukle(utf8.decode(veri));
       if (context.mounted) _mesaj(context, 'Yedek geri yüklendi');
