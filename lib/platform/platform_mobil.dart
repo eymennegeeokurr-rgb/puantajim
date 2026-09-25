@@ -1,15 +1,17 @@
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';
 
-/// Dosyayı telefonda kullanıcının seçtiği klasöre kaydeder (İndirilenler vb.).
+/// Android/iOS uygulamasında "Cihaza kaydet": paylaşım menüsünü açar.
+/// Menüden "Dosyalar'a kaydet", "Drive'a kaydet" veya "İndirilenler" seçilebilir.
 Future<bool> cihazaKaydet(Uint8List veri, String dosyaAdi, String mime) async {
-  // file_picker 11+: statik metotlar (FilePicker.platform kaldırıldı)
-  final yol = await FilePicker.saveFile(
-    fileName: dosyaAdi,
-    bytes: veri,
+  final sonuc = await SharePlus.instance.share(
+    ShareParams(
+      files: [XFile.fromData(veri, name: dosyaAdi, mimeType: mime)],
+      fileNameOverrides: [dosyaAdi],
+    ),
   );
-  return yol != null;
+  return sonuc.status == ShareResultStatus.success;
 }
 
 /// Uygulama olarak mı açıldı? (Mobil derlemede her zaman evet)
