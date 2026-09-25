@@ -168,6 +168,22 @@ class _TakvimIzgarasi extends StatelessWidget {
     final bosluk = DateTime(ay.year, ay.month, 1).weekday - 1; // Pazartesi = 0
     final bugun = Bicim.sadeceGun(DateTime.now());
 
+    // Girilmemiş ama otomatik hafta tatili sayılan pazarlar (soluk "HT" gösterilir)
+    final depo = Depo.instance;
+    final profil = depo.profil;
+    final ozet = profil == null
+        ? null
+        : Hesaplama.hesapla(
+            profil: profil,
+            ay: ay,
+            kayitlar: depo.ayKayitlari(ay),
+            hareketler: const [],
+            oncekiAyKayitlari: depo.ayKayitlari(DateTime(ay.year, ay.month - 1)),
+          );
+    final otoTatil = ozet?.otomatikTatilGunleri ?? const <int>{};
+    final kesilen = ozet?.kesilenPazarGunleri ?? const <int>{};
+    final pazarEtiketi = profil?.pazarEtiketi ?? '';
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
@@ -201,7 +217,8 @@ class _TakvimIzgarasi extends StatelessWidget {
               children: [
                 for (var i = 0; i < bosluk; i++) const SizedBox.shrink(),
                 for (var g = 1; g <= gunSayisi; g++)
-                  _hucre(context, DateTime(ay.year, ay.month, g), bugun, renk),
+                  _hucre(context, DateTime(ay.year, ay.month, g), bugun, renk,
+                      otoTatil.contains(g), kesilen.contains(g), pazarEtiketi),
               ],
             ),
           ],
@@ -210,7 +227,8 @@ class _TakvimIzgarasi extends StatelessWidget {
     );
   }
 
-  Widget _hucre(BuildContext context, DateTime t, DateTime bugun, ColorScheme renk) {
+  Widget _hucre(BuildContext context, DateTime t, DateTime bugun, ColorScheme renk,
+      bool otomatikTatil, bool pazarKesildi, String pazarEtiketi) {
     final k = Depo.instance.gun(t);
     final notVar = Depo.instance.notVar(t);
     final bugunMu = t == bugun;
@@ -219,7 +237,9 @@ class _TakvimIzgarasi extends StatelessWidget {
 
     final zemin = k != null
         ? k.durum.renk.withValues(alpha: 0.18)
-        : renk.surfaceContainerHighest.withValues(alpha: gelecek ? 0.15 : 0.45);
+        : otomatikTatil
+            ? GunDurumu.haftaTatili.renk.withValues(alpha: 0.08)
+            : renk.surfaceContainerHighest.withValues(alpha: gelecek ? 0.15 : 0.45);
 
     return InkWell(
       borderRadius: BorderRadius.circular(10),
@@ -250,13 +270,29 @@ class _TakvimIzgarasi extends StatelessWidget {
                 fontWeight: bugunMu ? FontWeight.w800 : FontWeight.w600,
                 color: gelecek
                     ? renk.outline
-                    : (pazar && k == null ? renk.error : null),
+                    : (pazar && k == null && !otomatikTatil ? renk.error : null),
               ),
             ),
             const SizedBox(height: 2),
-            if (k != null)
+            if (pazarKesildi && (k == null || k.durum == GunDurumu.haftaTatili))
               Text(
-                k.durum.kisa,
+                'HT✕',
+                style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: renk.error.withValues(alpha: 0.8)),
+              )
+            else if (k == null && otomatikTatil)
+              Text(
+                'HT',
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: GunDurumu.haftaTatili.renk.withValues(alpha: 0.6)),
+              ),
+            if (k != null && !(pazarKesildi && k.durum == GunDurumu.haftaTatili))
+              Text(
+                pazar && k.durum == GunDurumu.geldi ? pazarEtiketi.replaceAll("'e ", ':') : k.durum.kisa,
                 style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -305,6 +341,12 @@ class _Lejant extends StatelessWidget {
                 style: TextStyle(
                     fontWeight: FontWeight.w800, color: Color(0xFF6A1B9A))),
             const TextSpan(text: 'Mesai saati'),
+          ]), style: TextStyle(fontSize: 11, color: renk.onSurfaceVariant)),
+          Text.rich(TextSpan(children: [
+            TextSpan(
+                text: 'HT✕ ',
+                style: TextStyle(fontWeight: FontWeight.w800, color: renk.error)),
+            const TextSpan(text: 'Pazar kesildi'),
           ]), style: TextStyle(fontSize: 11, color: renk.onSurfaceVariant)),
           Text.rich(const TextSpan(children: [
             WidgetSpan(
@@ -361,9 +403,9 @@ class _AyOzetiKarti extends StatelessWidget {
             ]),
             const Divider(height: 22),
             Row(children: [
-              const Expanded(
-                child: Text('Kalan alacağım',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
+              Expanded(
+                child: Text(o.ayBitti ? 'Kalan alacağım' : 'Şu ana kadarki alacağım',
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
               ),
               Text(Bicim.para(o.net),
                   style: TextStyle(
@@ -393,7 +435,7 @@ class _AyOzetiKarti extends StatelessWidget {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    '${o.isaretsizGun} geçmiş gün için kayıt girilmedi.',
+                    '${o.isaretsizGun} geçmiş gün girilmedi (ücrete sayılmaz).',
                     style: TextStyle(fontSize: 12.5, color: renk.error),
                   ),
                 ),

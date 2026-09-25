@@ -152,6 +152,35 @@ class _GunDuzenlePenceresiState extends State<GunDuzenlePenceresi> {
               ],
             ),
 
+            // ---- Pazar bilgisi
+            if (widget.tarih.weekday == DateTime.sunday &&
+                (_durum == GunDurumu.geldi || _durum == GunDurumu.yarimGun)) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: GunDurumu.geldi.renk.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  'Pazar çalışması (${p.pazarEtiketi}): hafta tatili ücreti + '
+                  '${Bicim.sayi(p.pazarEkYevmiye * (_durum == GunDurumu.yarimGun ? 0.5 : 1))} yevmiye ek = '
+                  '${Bicim.para(p.gunlukUcret * p.pazarEkYevmiye * (_durum == GunDurumu.yarimGun ? 0.5 : 1))}',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+            if (widget.tarih.weekday != DateTime.sunday &&
+                _durum == GunDurumu.gelmedi &&
+                p.pazarKesintisi) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Mazeretsiz devamsızlık: bu haftanın pazar ücreti de kesilir. '
+                'Mazeretliyse "Ücretli İzin", "Ücretsiz İzin" veya "Raporlu" seçin.',
+                style: TextStyle(fontSize: 12, color: renk.error),
+              ),
+            ],
+
             // ---- Rapor türü (SGK rapor parası hesabı için)
             if (_durum == GunDurumu.raporlu) ...[
               const SizedBox(height: 16),

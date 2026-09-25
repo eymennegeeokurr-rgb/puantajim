@@ -29,7 +29,10 @@ class AylikOzet {
   final DateTime ay; // Ayın 1'i
   final int gunSayisi; // Ayın gün sayısı (28-31)
   final Map<GunDurumu, int> sayac; // Durum -> gün adedi
-  final int isaretsizGun; // Bugüne kadar hiç girilmemiş gün
+  final int isaretsizGun; // Bugüne kadar hiç girilmemiş gün (otomatik pazarlar hariç)
+  /// Girilmemiş ama otomatik hafta tatili sayılan pazarlar (ayın günü)
+  final Set<int> otomatikTatilGunleri;
+  final bool ayBitti; // Ay sona erdi mi? (devam eden ayda "şu ana kadar" hesap)
   final double mesaiSaat;
 
   final UcretTipi ucretTipi;
@@ -46,6 +49,11 @@ class AylikOzet {
 
   final double temelUcret; // Ödenen gün × günlük ücret
   final double mesaiUcreti;
+
+  // ---- Pazar ----
+  final double pazarCalisilanGun; // Pazar "Geldim" (yarım: 0,5)
+  final double pazarEkYevmiye; // Çalışılan her pazar için ek yevmiye (1, 1,5, 2)
+  final Set<int> kesilenPazarGunleri; // Mazeretsiz devamsızlık nedeniyle kesilen pazarlar
   final double ekOdeme;
   final double avans;
   final double kesinti;
@@ -70,6 +78,8 @@ class AylikOzet {
     required this.gunSayisi,
     required this.sayac,
     required this.isaretsizGun,
+    required this.otomatikTatilGunleri,
+    required this.ayBitti,
     required this.mesaiSaat,
     required this.ucretTipi,
     required this.ucret,
@@ -80,6 +90,9 @@ class AylikOzet {
     required this.odenenGun,
     required this.temelUcret,
     required this.mesaiUcreti,
+    required this.pazarCalisilanGun,
+    required this.pazarEkYevmiye,
+    required this.kesilenPazarGunleri,
     required this.ekOdeme,
     required this.avans,
     required this.kesinti,
@@ -98,6 +111,9 @@ class AylikOzet {
 
   int adet(GunDurumu d) => sayac[d] ?? 0;
 
+  /// Otomatik sayılan hafta tatili adedi
+  int get otomatikTatil => otomatikTatilGunleri.length;
+
   /// Çalışılan gün (geldi + yarım × 0,5)
   double get calisilanGun =>
       adet(GunDurumu.geldi) + adet(GunDurumu.yarimGun) * 0.5;
@@ -105,8 +121,14 @@ class AylikOzet {
   /// Eksik gün kesintisi tutarı
   double get devamsizlikTutari => kesintiGunu * gunlukUcret;
 
-  /// Toplam hak: temel ücret + mesai + ek ödemeler
-  double get brut => temelUcret + mesaiUcreti + ekOdeme;
+  /// Pazar çalışması ek ücreti
+  double get pazarCalismaUcreti => pazarCalisilanGun * pazarEkYevmiye * gunlukUcret;
+
+  /// Kesilen pazar sayısı
+  int get kesilenPazar => kesilenPazarGunleri.length;
+
+  /// Toplam hak: temel ücret + mesai + pazar çalışması + ek ödemeler
+  double get brut => temelUcret + mesaiUcreti + pazarCalismaUcreti + ekOdeme;
 
   /// SGK'nın ödediği ve işverenin ödeyeceğinden düşülen tutar
   /// (sadece "rapor tam ödenir" açıkken düşülür)
@@ -132,11 +154,17 @@ class AylikOzet {
 
 /// Hesap kuralları (aylıkçı, her ay 30 gün):
 ///
-///   Günlük       = maaş ÷ 30
-///   Eksik gün    = Gelmedi + Ücretsiz İzin + Yarım×0,5 (+ Raporlu, "rapor tam
-///                  ödenir" kapalıysa)
-///   Ödenen gün   = 31 çeken ayda 31 − eksik (en fazla 30), diğerlerinde 30 − eksik
-///   Temel        = ödenen gün × günlük
+///   SADECE GİRİLEN GÜNLER KAZANDIRIR:
+///     Geldi, Ücretli İzin, Hafta Tatili, Resmi Tatil = 1 gün; Yarım gün = 0,5
+///     Raporlu = 1 gün ("rapor tam ödenir" açıksa), değilse 0
+///     Gelmedi, Ücretsiz İzin, girilmemiş gün, gelecek gün = 0
+///     Girilmemiş Pazar: o hafta en az bir gün çalışıldıysa otomatik hafta tatili (1)
+///   Ödenen gün   = toplam (en fazla 30; 31 çeken ayda 31. gün fazladan para getirmez;
+///                  Şubat'ta ay sonuna kadar çalışan 30 güne tamamlanır)
+///   PAZAR: Hafta tatili ücreti (1 gün) çalışsa da çalışmasa da ödenir; o hafta
+///     mazeretsiz "Gelmedim" varsa kesilir (ayar açıksa). Pazar çalışana ayrıca
+///     ek yevmiye (1'e 1 / 1'e 1,5 / 1'e 2) ödenir.
+///   Günlük       = maaş ÷ 30,  Temel = ödenen gün × günlük
 ///   Mesai        = mesai saati × (günlük ÷ 7,5) × 1,5
 ///   Toplam hak   = temel + mesai + ek ödeme
 ///
@@ -148,7 +176,7 @@ class AylikOzet {
 ///   ödediği tutar işverenin ödeyeceğinden düşülür (farkı işveren öder).
 ///
 /// BANKA / ELDEN:
-///   Prim günü    = 31 çeken ayda 31 − (eksik + raporlu) (en fazla 30), diğer 30 − ...
+///   Prim günü    = ödenen gün hesabının aynısı, ama raporlu günler 0 sayılır
 ///   Banka        = (bankaya yatan 30 günlük tutar ÷ 30) × prim günü
 ///   Haciz        = banka × oran (1/4 veya 1/10) → icraya
 ///   Bankaya net  = banka − haciz
@@ -174,7 +202,7 @@ class Hesaplama {
     final asgari = AsgariUcret.yil(ay.year);
 
     final sayac = <GunDurumu, int>{};
-    double mesai = 0, eksikGun = 0, odenenGunlukte = 0;
+    double mesai = 0, odenenGunlukte = 0;
     var raporGunu = 0;
     final harita = <String, GunKaydi>{};
 
@@ -183,20 +211,9 @@ class Hesaplama {
       mesai += k.mesaiSaat;
       odenenGunlukte += k.durum.gunlukOdenenGun;
       harita[k.tarih] = k;
-      if (k.durum == GunDurumu.raporlu) {
-        raporGunu++;
-      } else {
-        eksikGun += k.durum.aylikKesintiGunu;
-      }
+      if (k.durum == GunDurumu.raporlu) raporGunu++;
     }
 
-    // Bugüne kadar (bugün dahil) hiç girilmemiş gün sayısı
-    var isaretsiz = 0;
-    for (var g = 1; g <= gunSayisi; g++) {
-      final t = DateTime(ay.year, ay.month, g);
-      if (t.isAfter(bugunGun)) break;
-      if (!harita.containsKey(_anahtar(t))) isaretsiz++;
-    }
 
     double ekOdeme = 0, avans = 0, kesinti = 0;
     for (final h in hareketler) {
@@ -216,19 +233,93 @@ class Hesaplama {
     final gunluk = profil.gunlukUcret;
     final saatlik = profil.saatlikUcret;
     final aylik = profil.ucretTipi == UcretTipi.aylik;
-    final taban = gunSayisi >= 31 ? 31.0 : 30.0;
+    final oncekiHarita = {for (final k in oncekiAyKayitlari) k.tarih: k};
+    GunKaydi? kayitBul(DateTime t) =>
+        harita[_anahtar(t)] ?? oncekiHarita[_anahtar(t)];
 
-    double otuzaSinirla(double v) => v > 30 ? 30.0 : (v < 0 ? 0.0 : v);
+    // O hafta (Pzt-Cmt) en az bir gün çalışıldıysa, girilmemiş Pazar
+    // otomatik "hafta tatili" (ücretli) sayılır.
+    bool haftadaCalisti(DateTime pazar) {
+      for (var i = 1; i <= 6; i++) {
+        final k = kayitBul(DateTime(pazar.year, pazar.month, pazar.day - i));
+        if (k != null && k.durum.haftaTatiliHakkiVerir) return true;
+      }
+      return false;
+    }
 
-    // ---- Ücret ödenen gün
-    final maastanDusulen =
-        eksikGun + (profil.raporTamOdenir ? 0 : raporGunu.toDouble());
+    // O haftada (Pzt-Cmt) mazeretsiz devamsızlık ("Gelmedim") var mı?
+    bool haftadaGelmedi(DateTime pazar) {
+      for (var i = 1; i <= 6; i++) {
+        final k = kayitBul(DateTime(pazar.year, pazar.month, pazar.day - i));
+        if (k != null && k.durum == GunDurumu.gelmedi) return true;
+      }
+      return false;
+    }
+
+    // ---- Gün gün: ücret ödenen gün ve SGK prim günü
+    // Sadece GİRİLEN günler kazandırır. Girilmemiş günler ve gelecek günler
+    // sayılmaz (ay devam ederken "şu ana kadar" hakediş görünür).
+    //
+    // PAZAR:
+    //  - Hafta tatili ücreti (1 gün): çalışsa da çalışmasa da ödenir.
+    //    Ancak o hafta mazeretsiz "Gelmedim" varsa kesilir (ayar açıksa).
+    //  - Pazar çalıştıysa ("Geldim"): ayrıca [pazarEkYevmiye] kadar ek yevmiye.
+    double ucretliToplam = 0, primToplam = 0, pazarCalisma = 0;
+    final otomatikTatil = <int>{};
+    final kesilenPazar = <int>{};
+    var isaretsiz = 0;
+    var sonGunOdendi = false;
+    for (var g = 1; g <= gunSayisi; g++) {
+      final t = DateTime(ay.year, ay.month, g);
+      final k = harita[_anahtar(t)];
+      final pazar = t.weekday == DateTime.sunday;
+      final pazarKesilir = pazar && profil.pazarKesintisi && haftadaGelmedi(t);
+      double ucretli = 0, prim = 0;
+
+      if (pazar && (k == null || k.durum.pazarTatilUcretiAlir)) {
+        if (k == null && t.isAfter(bugunGun)) {
+          // gelecek pazar: henüz hak edilmedi
+        } else if (k == null && !haftadaCalisti(t) && !pazarKesilir) {
+          isaretsiz++; // hiç çalışılmayan haftanın girilmemiş pazarı
+        } else if (pazarKesilir) {
+          kesilenPazar.add(g); // mazeretsiz devamsızlık: hafta tatili ücreti yok
+        } else {
+          ucretli = 1;
+          prim = 1;
+          if (k == null) otomatikTatil.add(g);
+        }
+        // Pazar çalışması ek yevmiyesi (tatil ücreti kesilse bile ödenir)
+        if (k != null && k.durum == GunDurumu.geldi) pazarCalisma += 1;
+        if (k != null && k.durum == GunDurumu.yarimGun) pazarCalisma += 0.5;
+      } else if (k != null) {
+        ucretli = k.durum.aylikOdenenGun(raporTam: profil.raporTamOdenir);
+        prim = k.durum.aylikOdenenGun(raporTam: false);
+      } else if (!t.isAfter(bugunGun)) {
+        isaretsiz++;
+      }
+      ucretliToplam += ucretli;
+      primToplam += prim;
+      if (g == gunSayisi) sonGunOdendi = ucretli > 0 || (k != null && k.durum.pazarTatilUcretiAlir);
+    }
+
+    // Her ay 30 gün: 31 çeken ayda 31. gün fazladan para getirmez (en fazla 30);
+    // Şubat gibi kısa aylarda ay sonuna kadar çalışan 30 güne tamamlanır.
+    double otuzGune(double gun) {
+      var v = gun;
+      if (gunSayisi < 30 && sonGunOdendi) v += 30 - gunSayisi;
+      if (v > 30) v = 30;
+      if (v < 0) v = 0;
+      return v;
+    }
+
+    final ayBitti = bugunGun.isAfter(DateTime(ay.year, ay.month, gunSayisi));
     final double temel;
     final double odenenGun;
     final double kesintiGunu;
     if (aylik) {
-      odenenGun = otuzaSinirla(taban - maastanDusulen);
-      kesintiGunu = 30 - odenenGun;
+      odenenGun = otuzGune(ucretliToplam);
+      // Eksik gün sadece ay bitince anlamlı (ay devam ederken gelecek günler eksik değildir)
+      kesintiGunu = ayBitti ? 30 - odenenGun : 0;
       temel = odenenGun * gunluk;
     } else {
       kesintiGunu = 0;
@@ -238,10 +329,6 @@ class Hesaplama {
 
     // ---- SGK rapor parası (tahmini)
     // Rapor ardışık günlerden oluşur; önceki aydan devam eden rapor da sayılır
-    final oncekiHarita = {for (final k in oncekiAyKayitlari) k.tarih: k};
-    GunKaydi? kayitBul(DateTime t) =>
-        harita[_anahtar(t)] ?? oncekiHarita[_anahtar(t)];
-
     final brutAylik = profil.sgkBrut > 0 ? profil.sgkBrut : asgari.brut;
     var sgkGunluk = brutAylik / 30;
     final altSinir = asgari.brut / 30;
@@ -276,13 +363,15 @@ class Hesaplama {
       BankaTipi.ozel => profil.bankaTutar,
     };
     // Raporlu günler SGK'ya prim günü olarak bildirilmez → bankaya yatmaz
-    final primGunu = otuzaSinirla(taban - eksikGun - raporGunu);
+    final primGunu = otuzGune(primToplam);
 
     return AylikOzet(
       ay: ayBasi,
       gunSayisi: gunSayisi,
       sayac: sayac,
       isaretsizGun: isaretsiz,
+      otomatikTatilGunleri: otomatikTatil,
+      ayBitti: ayBitti,
       mesaiSaat: mesai,
       ucretTipi: profil.ucretTipi,
       ucret: profil.ucret,
@@ -293,6 +382,9 @@ class Hesaplama {
       odenenGun: odenenGun,
       temelUcret: temel,
       mesaiUcreti: mesai * saatlik * profil.mesaiKatsayisi,
+      pazarCalisilanGun: pazarCalisma,
+      pazarEkYevmiye: profil.pazarEkYevmiye,
+      kesilenPazarGunleri: kesilenPazar,
       ekOdeme: ekOdeme,
       avans: avans,
       kesinti: kesinti,

@@ -86,6 +86,41 @@ extension GunDurumuX on GunDurumu {
     }
   }
 
+  /// AYLIKÇI için bu günün kazandırdığı gün:
+  /// geldi, ücretli izin, hafta tatili, resmi tatil: 1; yarım gün: 0,5;
+  /// raporlu: [raporTam] ise 1, değilse 0; gelmedi, ücretsiz izin: 0.
+  double aylikOdenenGun({required bool raporTam}) {
+    switch (this) {
+      case GunDurumu.geldi:
+      case GunDurumu.ucretliIzin:
+      case GunDurumu.haftaTatili:
+      case GunDurumu.resmiTatil:
+        return 1;
+      case GunDurumu.yarimGun:
+        return 0.5;
+      case GunDurumu.raporlu:
+        return raporTam ? 1 : 0;
+      case GunDurumu.gelmedi:
+      case GunDurumu.ucretsizIzin:
+        return 0;
+    }
+  }
+
+  /// Pazar günü bu durum girildiyse hafta tatili ücreti (1 gün) hesaplanır mı?
+  /// (Hafta tatili, Geldim = pazar çalıştı, Yarım gün)
+  bool get pazarTatilUcretiAlir =>
+      this == GunDurumu.haftaTatili ||
+      this == GunDurumu.geldi ||
+      this == GunDurumu.yarimGun;
+
+  /// Bu gün o haftanın Pazar'ını (girilmemişse) ücretli hafta tatili yapar mı?
+  bool get haftaTatiliHakkiVerir =>
+      this == GunDurumu.geldi ||
+      this == GunDurumu.yarimGun ||
+      this == GunDurumu.ucretliIzin ||
+      this == GunDurumu.resmiTatil ||
+      this == GunDurumu.raporlu;
+
   /// YEVMİYECİ için ücret ödenecek gün (geldi ve ücretli izin: 1; yarım: 0,5).
   double get gunlukOdenenGun {
     switch (this) {

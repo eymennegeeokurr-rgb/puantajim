@@ -63,7 +63,13 @@ class RaporUretici {
       if (aylik) ...[
         ('Aylık maaş (30 gün)', Bicim.para(o.ucret)),
         ('Günlük ücret (maaş ÷ 30)', Bicim.para(o.gunlukUcret)),
-        ('Ücret ödenen gün', '${Bicim.sayi(o.odenenGun)} / 30'),
+        (o.ayBitti ? 'Ücret ödenen gün' : 'Şu ana kadar ödenen gün',
+            '${Bicim.sayi(o.odenenGun)} / 30'),
+        if (o.kesilenPazar > 0)
+          (
+            'Kesilen pazar (mazeretsiz devamsızlık olan hafta)',
+            '${o.kesilenPazar} gün'
+          ),
         if (o.kesintiGunu > 0)
           (
             'Eksik gün kesintisi (${Bicim.sayi(o.kesintiGunu)} gün)',
@@ -74,9 +80,14 @@ class RaporUretici {
         ('Ücret ödenen gün', Bicim.sayi(o.odenenGun)),
       ],
       ('Gün ücreti toplamı', Bicim.para(o.temelUcret)),
+      if (o.pazarCalisilanGun > 0)
+        (
+          'Pazar çalışması (${Bicim.sayi(o.pazarCalisilanGun)} gün × ${Bicim.sayi(o.pazarEkYevmiye)} yevmiye, ${profil.pazarEtiketi})',
+          '+ ${Bicim.para(o.pazarCalismaUcreti)}'
+        ),
       if (o.mesaiSaat > 0)
         (
-          'Fazla mesai (${Bicim.sayi(o.mesaiSaat)} sa × ${Bicim.para(o.saatlikUcret)} × ${Bicim.sayi(o.mesaiKatsayisi)})',
+          'Fazla mesai (${Bicim.sayi(o.mesaiSaat)} sa × ${Bicim.para(o.saatlikUcret)}, ${profil.mesaiZamEtiketi} zamlı)',
           '+ ${Bicim.para(o.mesaiUcreti)}'
         ),
       if (o.ekOdeme > 0) ('Ek ödeme / prim', '+ ${Bicim.para(o.ekOdeme)}'),
@@ -204,7 +215,7 @@ class RaporUretici {
               return [
                 Bicim.kisaTarih(g.tarih),
                 Bicim.gunAdi(g.tarih),
-                k?.durum.raporEtiketi ?? '-',
+                _durumYazisi(g.tarih, k),
                 k?.giris ?? '',
                 k?.cikis ?? '',
                 (k?.mesaiSaat ?? 0) > 0 ? '${Bicim.sayi(k!.mesaiSaat)} sa' : '',
@@ -296,10 +307,17 @@ class RaporUretici {
             ),
           ],
 
+          if (ozet.otomatikTatil > 0 || ozet.kesilenPazar > 0) ...[
+            pw.SizedBox(height: 6),
+            pw.Text(
+                '* Girilmemiş Pazar günleri, o hafta çalışıldığı için ücretli hafta tatili sayıldı. '
+                '"Kesildi": o hafta mazeretsiz devamsızlık olduğu için hafta tatili ücreti ödenmedi.',
+                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+          ],
           if (ozet.isaretsizGun > 0) ...[
             pw.SizedBox(height: 8),
             pw.Text(
-                'Not: ${ozet.isaretsizGun} gün için kayıt girilmemiştir (tabloda "-").',
+                'Not: ${ozet.isaretsizGun} gün için kayıt girilmemiştir (tabloda "-"); bu günler ücrete sayılmadı.',
                 style: const pw.TextStyle(fontSize: 8, color: PdfColors.red700)),
           ],
 
@@ -436,7 +454,7 @@ class RaporUretici {
       p.appendRow([
         TextCellValue(Bicim.kisaTarih(g.tarih)),
         TextCellValue(Bicim.gunAdi(g.tarih)),
-        TextCellValue(k?.durum.raporEtiketi ?? '-'),
+        TextCellValue(_durumYazisi(g.tarih, k)),
         TextCellValue(k?.giris ?? ''),
         TextCellValue(k?.cikis ?? ''),
         (k?.mesaiSaat ?? 0) > 0 ? DoubleCellValue(k!.mesaiSaat) : TextCellValue(''),
@@ -548,6 +566,23 @@ class RaporUretici {
     for (var c = 0; c < sutunSayisi; c++) {
       s.cell(CellIndex.indexByColumnRow(columnIndex: c, rowIndex: satir)).cellStyle = stil;
     }
+  }
+
+  /// Tablodaki durum yazısı: girilmemiş ama otomatik sayılan pazar "Hafta Tatili*"
+  String _durumYazisi(DateTime t, GunKaydi? k) {
+    final buAy = t.month == ozet.ay.month;
+    final kesildi = buAy && ozet.kesilenPazarGunleri.contains(t.day);
+    if (k != null) {
+      if (k.durum == GunDurumu.raporlu) return 'Raporlu (${k.raporTuru.etiket})';
+      if (t.weekday == DateTime.sunday && k.durum == GunDurumu.geldi) {
+        return kesildi ? 'Pazar Çalıştı (tatil kesildi)' : 'Pazar Çalıştı';
+      }
+      if (kesildi) return 'Hafta Tatili (kesildi)';
+      return k.durum.raporEtiketi;
+    }
+    if (kesildi) return 'Hafta Tatili (kesildi)';
+    if (buAy && ozet.otomatikTatilGunleri.contains(t.day)) return 'Hafta Tatili*';
+    return '-';
   }
 
   double _yuvarla(double v) => (v * 100).roundToDouble() / 100;

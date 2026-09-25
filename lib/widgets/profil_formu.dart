@@ -29,13 +29,15 @@ class _ProfilFormuState extends State<ProfilFormu> {
       _firma,
       _ucret,
       _saat,
-      _kat,
       _mola,
       _banka,
       _sgkBrut;
   late BankaTipi _bankaTipi;
   late double _haciz;
   late bool _raporTam;
+  late double _mesaiKatsayi; // 1.25 / 1.30 / 1.50
+  late double _pazarEk; // 1 / 1.5 / 2
+  late bool _pazarKesintisi;
   bool _gelismis = false;
   bool _kaydediliyor = false;
 
@@ -51,20 +53,27 @@ class _ProfilFormuState extends State<ProfilFormu> {
     _firma = TextEditingController(text: p?.firma ?? '');
     _ucret = TextEditingController(text: _tutarYazi(p?.ucret ?? 0));
     _saat = TextEditingController(text: Bicim.sayi(p?.gunlukSaat ?? 7.5));
-    _kat = TextEditingController(text: Bicim.sayi(p?.mesaiKatsayisi ?? 1.5));
     _mola = TextEditingController(text: Bicim.sayi(p?.molaSaat ?? 1));
     _banka = TextEditingController(text: _tutarYazi(p?.bankaTutar ?? 0));
     _sgkBrut = TextEditingController(text: _tutarYazi(p?.sgkBrut ?? 0));
     _bankaTipi = p?.bankaTipi ?? BankaTipi.yok;
     _haciz = p?.hacizOrani ?? 0;
     _raporTam = p?.raporTamOdenir ?? true;
+    _mesaiKatsayi = p?.mesaiKatsayisi ?? 1.5;
+    // Listede olmayan eski değerleri en yakın seçeneğe yuvarla
+    if (![1.25, 1.30, 1.50].any((v) => (v - _mesaiKatsayi).abs() < 0.001)) {
+      _mesaiKatsayi = 1.5;
+    }
+    _pazarEk = p?.pazarEkYevmiye ?? 2;
+    if (![1.0, 1.5, 2.0].contains(_pazarEk)) _pazarEk = 2;
+    _pazarKesintisi = p?.pazarKesintisi ?? true;
     _ucret.addListener(() => setState(() {}));
     _banka.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
-    for (final c in [_ad, _gorev, _firma, _ucret, _saat, _kat, _mola, _banka, _sgkBrut]) {
+    for (final c in [_ad, _gorev, _firma, _ucret, _saat, _mola, _banka, _sgkBrut]) {
       c.dispose();
     }
     super.dispose();
@@ -81,7 +90,9 @@ class _ProfilFormuState extends State<ProfilFormu> {
       ucretTipi: UcretTipi.aylik,
       ucret: Bicim.sayiOku(_ucret.text) ?? 0,
       gunlukSaat: Bicim.sayiOku(_saat.text) ?? 7.5,
-      mesaiKatsayisi: Bicim.sayiOku(_kat.text) ?? 1.5,
+      mesaiKatsayisi: _mesaiKatsayi,
+      pazarEkYevmiye: _pazarEk,
+      pazarKesintisi: _pazarKesintisi,
       molaSaat: Bicim.sayiOku(_mola.text) ?? 1,
       bankaTipi: _bankaTipi,
       bankaTutar:
@@ -255,6 +266,59 @@ class _ProfilFormuState extends State<ProfilFormu> {
           ],
 
           // ------------------------------------------------------------------
+          baslik('Akşam (fazla) mesaisi zammı'),
+          SegmentedButton<double>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: 1.25, label: Text('%25')),
+              ButtonSegment(value: 1.30, label: Text('%30')),
+              ButtonSegment(value: 1.50, label: Text('%50')),
+            ],
+            selected: {_mesaiKatsayi},
+            onSelectionChanged: (s) => setState(() => _mesaiKatsayi = s.first),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            ucret != null && ucret > 0
+                ? 'Saatlik ${Bicim.para(ucret / 30 / (Bicim.sayiOku(_saat.text) ?? 7.5))} → '
+                    '1 saat mesai ${Bicim.para(ucret / 30 / (Bicim.sayiOku(_saat.text) ?? 7.5) * _mesaiKatsayi)}'
+                : 'Saatlik ücret = günlük ücret ÷ 7,5 saat',
+            style: aciklamaStil,
+          ),
+
+          // ------------------------------------------------------------------
+          baslik('Pazar çalışması'),
+          SegmentedButton<double>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: 1, label: Text("1'e 1")),
+              ButtonSegment(value: 1.5, label: Text("1'e 1,5")),
+              ButtonSegment(value: 2, label: Text("1'e 2")),
+            ],
+            selected: {_pazarEk},
+            onSelectionChanged: (s) => setState(() => _pazarEk = s.first),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            ucret != null && ucret > 0
+                ? 'Pazar ücreti ${Bicim.para(ucret / 30)} her hafta ödenir. Pazar çalışınca '
+                    '+${Bicim.para(ucret / 30 * _pazarEk)} ek → toplam ${Bicim.para(ucret / 30 * (1 + _pazarEk))}'
+                : 'Pazar ücreti her hafta ödenir; pazar çalışınca ayrıca ek yevmiye verilir.',
+            style: aciklamaStil,
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _pazarKesintisi,
+            onChanged: (v) => setState(() => _pazarKesintisi = v),
+            title: const Text('Mazeretsiz gelmediği haftanın pazarı kesilsin'),
+            subtitle: Text(
+              'Haftada 45 saat (6 gün) çalışmayan, o hafta "Gelmedim" günü olan işçinin '
+              'hafta tatili ücreti ödenmez. İzin, rapor ve resmi tatil mazeret sayılır.',
+              style: aciklamaStil,
+            ),
+          ),
+
+          // ------------------------------------------------------------------
           baslik('Raporlu günler'),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -278,38 +342,24 @@ class _ProfilFormuState extends State<ProfilFormu> {
               child: Row(children: [
                 Icon(_gelismis ? Icons.expand_less : Icons.expand_more),
                 const SizedBox(width: 6),
-                const Text('Mesai ve SGK ayarları'),
+                const Text('Diğer ayarlar (saat, mola, SGK)'),
                 const Spacer(),
                 if (!_gelismis)
-                  Text('${_saat.text} saat • ×${_kat.text}',
+                  Text('${_saat.text} saat',
                       style: TextStyle(color: renk.onSurfaceVariant)),
               ]),
             ),
           ),
           if (_gelismis) ...[
-            Row(children: [
-              Expanded(
-                child: TextFormField(
-                  controller: _saat,
-                  keyboardType: sayiKlavye,
-                  inputFormatters: sayiFiltre,
-                  decoration: const InputDecoration(
-                      labelText: 'Günlük normal', suffixText: 'saat'),
-                  validator: _pozitif,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextFormField(
-                  controller: _kat,
-                  keyboardType: sayiKlavye,
-                  inputFormatters: sayiFiltre,
-                  decoration: const InputDecoration(
-                      labelText: 'Mesai katsayısı', prefixText: '× '),
-                  validator: _pozitif,
-                ),
-              ),
-            ]),
+            TextFormField(
+              controller: _saat,
+              keyboardType: sayiKlavye,
+              inputFormatters: sayiFiltre,
+              decoration: const InputDecoration(
+                  labelText: 'Günlük normal çalışma', suffixText: 'saat',
+                  helperText: 'Haftalık 45 saat ÷ 6 gün = 7,5 saat'),
+              validator: _pozitif,
+            ),
             bosluk,
             TextFormField(
               controller: _mola,
@@ -336,12 +386,6 @@ class _ProfilFormuState extends State<ProfilFormu> {
               ),
             ),
             const SizedBox(height: 6),
-            Text(
-              'Saatlik ücret = günlük ücret ÷ günlük normal saat. '
-              'Mesai ücreti = mesai saati × saatlik ücret × katsayı. '
-              'Yasal varsayılan: 7,5 saat ve × 1,5.',
-              style: aciklamaStil,
-            ),
           ],
           const SizedBox(height: 22),
           FilledButton.icon(

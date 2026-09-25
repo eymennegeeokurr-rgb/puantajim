@@ -23,8 +23,8 @@ Her çalışan kendi telefonuna kurar, **kendi** puantajını tutar:
 | Kalem | Hesap |
 |---|---|
 | Günlük ücret | Maaş ÷ 30 |
-| Eksik gün | Gelmedi + Ücretsiz İzin + Raporlu + Yarım gün × 0,5 |
-| Ödenen gün | 31 çeken ayda: 31 − eksik gün (**en fazla 30**) · Diğer aylarda: 30 − eksik gün |
+| Sayılan gün | **Sadece girilen günler**: Geldi, Ücretli İzin, Hafta Tatili, Resmi Tatil = 1 · Yarım = 0,5 · Raporlu = 1 (rapor tam ödenirse) · Gelmedi, Ücretsiz İzin, **girilmemiş gün** = 0 · Girilmemiş Pazar, o hafta çalışıldıysa otomatik hafta tatili |
+| Ödenen gün | Sayılan gün toplamı (**en fazla 30**) · Şubat'ta ay sonuna kadar çalışan 30 güne tamamlanır · Ay devam ederken "şu ana kadar" hakediş görünür |
 | Temel ücret | Ödenen gün × günlük ücret |
 | Hafta tatili / resmi tatil / ücretli izin | Maaştan düşülmez |
 | Saatlik ücret | Günlük ÷ 7,5 saat |
@@ -32,6 +32,15 @@ Her çalışan kendi telefonuna kurar, **kendi** puantajını tutar:
 | **Net (kalan alacak)** | Temel + Mesai + Ek ödeme − Avans − Kesinti |
 
 Örnekler (45.000 ₺ maaş): 31 çeken ayda hepsi "Geldim" → 30 gün, 45.000 ₺ · 31 çeken ayda 1 gün gelmedi → yine 30 gün · 2 gün gelmedi → 29 gün · Şubat'ta tam çalıştı → 30 gün.
+
+### Pazar ve Mesai
+
+| Kural | Hesap |
+|---|---|
+| Hafta tatili (Pazar) ücreti | Her hafta 1 gün ödenir (girilmemiş pazar, o hafta çalışıldıysa kendiliğinden sayılır) |
+| Pazar kesintisi (açık) | O hafta (Pzt–Cmt) mazeretsiz **"Gelmedim"** varsa o haftanın pazar ücreti ödenmez. Ücretli/ücretsiz izin, rapor, resmi tatil mazeret sayılır. (Haftalık 45 saat = 6 gün × 7,5 saat) |
+| Pazar çalışması | Pazar günü "Geldim" → tatil ücretine **ek** 1 / 1,5 / **2** yevmiye (1'e 1, 1'e 1,5, **1'e 2**). Örn. günlük 1.000 ₺, 1'e 2 → 1.000 + 2.000 = 3.000 ₺ |
+| Akşam (fazla) mesaisi | Saatlik (günlük ÷ 7,5) × (1 + zam) → %25 / %30 / **%50**. Örn. saatlik 100 ₺, %50 → 150 ₺ |
 
 ### Banka / Elden, Haciz, Rapor
 

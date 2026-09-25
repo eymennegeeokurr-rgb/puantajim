@@ -53,7 +53,7 @@ class RaporSayfasi extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(18),
                   child: Column(children: [
-                    Text('Kalan alacağım',
+                    Text(ozet.ayBitti ? 'Kalan alacağım' : 'Şu ana kadarki alacağım',
                         style: TextStyle(color: renk.onPrimaryContainer)),
                     const SizedBox(height: 4),
                     Text(Bicim.para(ozet.net),
@@ -115,7 +115,7 @@ class RaporSayfasi extends StatelessWidget {
                       style: TextStyle(color: renk.onErrorContainer),
                     ),
                     subtitle: Text(
-                      'Göndermeden önce Puantaj sekmesinden tamamlayın.',
+                      'Girilmemiş günler ücrete sayılmaz. Göndermeden önce Puantaj sekmesinden tamamlayın.',
                       style: TextStyle(color: renk.onErrorContainer),
                     ),
                   ),
@@ -145,6 +145,20 @@ class RaporSayfasi extends StatelessWidget {
                               size: 16, color: Color(0xFF6A1B9A)),
                           label: Text('Mesai: ${Bicim.sayi(ozet.mesaiSaat)} saat'),
                         ),
+                        if (ozet.pazarCalisilanGun > 0)
+                          Chip(
+                            visualDensity: VisualDensity.compact,
+                            avatar: Icon(Icons.wb_sunny,
+                                size: 16, color: GunDurumu.geldi.renk),
+                            label: Text(
+                                'Pazar çalıştı: ${Bicim.sayi(ozet.pazarCalisilanGun)}'),
+                          ),
+                        if (ozet.kesilenPazar > 0)
+                          Chip(
+                            visualDensity: VisualDensity.compact,
+                            avatar: Icon(Icons.block, size: 16, color: renk.error),
+                            label: Text('Kesilen pazar: ${ozet.kesilenPazar}'),
+                          ),
                       ]),
                     ],
                   ),

@@ -47,6 +47,15 @@ class Profil {
   /// Giriş-çıkış saatinden mesai önerirken düşülecek mola (saat)
   final double molaSaat;
 
+  // ---- Pazar ----
+
+  /// Pazar çalışana, hafta tatili ücretine EK olarak ödenen yevmiye.
+  /// 1'e 1 = 1, 1'e 1,5 = 1.5, 1'e 2 = 2 (varsayılan)
+  final double pazarEkYevmiye;
+
+  /// true: Haftada mazeretsiz "Gelmedim" varsa o haftanın pazar ücreti kesilir
+  final bool pazarKesintisi;
+
   // ---- Banka / elden ----
 
   /// Bankaya yatan kısım: yok / asgari ücret / anlaşılan tutar
@@ -79,6 +88,8 @@ class Profil {
     this.gunlukSaat = 7.5,
     this.mesaiKatsayisi = 1.5,
     this.molaSaat = 1.0,
+    this.pazarEkYevmiye = 2,
+    this.pazarKesintisi = true,
     this.bankaTipi = BankaTipi.yok,
     this.bankaTutar = 0,
     this.hacizOrani = 0,
@@ -91,6 +102,15 @@ class Profil {
 
   /// Bir saatlik ücret karşılığı
   double get saatlikUcret => gunlukSaat > 0 ? gunlukUcret / gunlukSaat : 0;
+
+  /// "1'e 2" gibi pazar oranı yazısı
+  String get pazarEtiketi {
+    final v = pazarEkYevmiye;
+    return "1'e ${v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toString().replaceAll('.', ',')}";
+  }
+
+  /// "%50" gibi fazla mesai zammı yazısı
+  String get mesaiZamEtiketi => '%${((mesaiKatsayisi - 1) * 100).round()}';
 
   /// Haciz oranının yazısı
   String get hacizEtiketi {
@@ -108,6 +128,8 @@ class Profil {
         'gunlukSaat': gunlukSaat,
         'mesaiKatsayisi': mesaiKatsayisi,
         'molaSaat': molaSaat,
+        'pazarEkYevmiye': pazarEkYevmiye,
+        'pazarKesintisi': pazarKesintisi,
         'bankaTipi': bankaTipi.name,
         'bankaTutar': bankaTutar,
         'hacizOrani': hacizOrani,
@@ -125,6 +147,8 @@ class Profil {
         gunlukSaat: (j['gunlukSaat'] as num?)?.toDouble() ?? 7.5,
         mesaiKatsayisi: (j['mesaiKatsayisi'] as num?)?.toDouble() ?? 1.5,
         molaSaat: (j['molaSaat'] as num?)?.toDouble() ?? 1.0,
+        pazarEkYevmiye: (j['pazarEkYevmiye'] as num?)?.toDouble() ?? 2,
+        pazarKesintisi: (j['pazarKesintisi'] as bool?) ?? true,
         bankaTipi: BankaTipiX.adindan(j['bankaTipi'] as String?),
         bankaTutar: (j['bankaTutar'] as num?)?.toDouble() ?? 0,
         hacizOrani: (j['hacizOrani'] as num?)?.toDouble() ?? 0,
