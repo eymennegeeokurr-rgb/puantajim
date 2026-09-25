@@ -1,0 +1,48 @@
+name: puantajim
+description: Puantajım - Kişisel puantaj, mesai, avans ve hakediş defteri. İnternetsiz çalışır.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # Veriler telefonda saklanır (Android: yerel dosya, iPhone web uygulaması: tarayıcı hafızası)
+  shared_preferences: ^2.3.2
+
+  # Türkçe tarih ve para biçimi
+  intl: any
+
+  # PDF / Excel / yedek dosyasını paylaşma ve kaydetme
+  share_plus: '>=11.0.0 <14.0.0'
+  file_picker: '>=10.1.0 <12.0.0'
+
+  # Rapor üretimi (saf Dart - hem Android'de hem web'de çalışır)
+  excel: ^4.0.6
+  pdf: ^3.11.1
+
+  # Web'de dosya indirme ve "ana ekrana eklendi mi" kontrolü
+  web: ^1.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/fonts/DejaVuSans.ttf
+    - assets/fonts/DejaVuSans-Bold.ttf
+  # Uygulama yazı tipi de gömülü: web sürümü internetsizken yazı tipi indirmeye çalışmasın
+  fonts:
+    - family: DejaVu
+      fonts:
+        - asset: assets/fonts/DejaVuSans.ttf
+        - asset: assets/fonts/DejaVuSans-Bold.ttf
+          weight: 700

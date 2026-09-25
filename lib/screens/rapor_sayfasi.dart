@@ -1,0 +1,288 @@
+import 'dart:typed_data';
+
+import 'package:flutter/material.dart';
+
+import '../data/depo.dart';
+import '../models/gun_kaydi.dart';
+import '../services/bicim.dart';
+import '../services/hesaplama.dart';
+import '../services/paylasim.dart';
+import '../services/rapor_uretici.dart';
+import '../widgets/ay_gezgini.dart';
+
+/// Aylık hakediş özeti + PDF/Excel gönderme.
+class RaporSayfasi extends StatelessWidget {
+  const RaporSayfasi({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final depo = Depo.instance;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Hakedişim')),
+      body: ListenableBuilder(
+        listenable: Listenable.merge([depo, depo.seciliAy]),
+        builder: (context, _) {
+          final profil = depo.profil;
+          if (profil == null) return const SizedBox.shrink();
+          final ay = depo.seciliAy.value;
+          final kayitlar = depo.ayKayitlari(ay);
+          final hareketler = depo.ayHareketleri(ay);
+          final ozet = Hesaplama.hesapla(
+              profil: profil, ay: ay, kayitlar: kayitlar, hareketler: hareketler);
+          final uretici = RaporUretici(
+              profil: profil, ozet: ozet, kayitlar: kayitlar, hareketler: hareketler);
+          final renk = Theme.of(context).colorScheme;
+
+          return ListView(
+            padding: const EdgeInsets.only(bottom: 32),
+            children: [
+              const AyGezgini(),
+
+              // ---- Net alacak
+              Card(
+                color: renk.primaryContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(children: [
+                    Text('Kalan alacağım (net)',
+                        style: TextStyle(color: renk.onPrimaryContainer)),
+                    const SizedBox(height: 4),
+                    Text(Bicim.para(ozet.net),
+                        style: TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w800,
+                            color: renk.onPrimaryContainer)),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Brüt ${Bicim.para(ozet.brut)}  •  Avans ${Bicim.para(ozet.avans)}',
+                      style: TextStyle(
+                          fontSize: 12.5, color: renk.onPrimaryContainer),
+                    ),
+                  ]),
+                ),
+              ),
+
+              // ---- Gönder butonları
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                child: Row(children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => _hazirlaVeGoster(context, uretici, pdf: true),
+                      icon: const Icon(Icons.picture_as_pdf),
+                      label: const Text('PDF Gönder'),
+                      style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(50)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: () => _hazirlaVeGoster(context, uretici, pdf: false),
+                      icon: const Icon(Icons.table_view),
+                      label: const Text('Excel Gönder'),
+                      style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(50)),
+                    ),
+                  ),
+                ]),
+              ),
+
+              if (ozet.isaretsizGun > 0)
+                Card(
+                  color: renk.errorContainer,
+                  child: ListTile(
+                    leading: Icon(Icons.warning_amber, color: renk.onErrorContainer),
+                    title: Text(
+                      '${ozet.isaretsizGun} gün için kayıt girilmemiş',
+                      style: TextStyle(color: renk.onErrorContainer),
+                    ),
+                    subtitle: Text(
+                      'Göndermeden önce Puantaj sekmesinden tamamlayın.',
+                      style: TextStyle(color: renk.onErrorContainer),
+                    ),
+                  ),
+                ),
+
+              // ---- Gün özeti
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Gün Özeti',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                      const SizedBox(height: 10),
+                      Wrap(spacing: 6, runSpacing: 6, children: [
+                        for (final d in GunDurumu.values)
+                          if (ozet.adet(d) > 0)
+                            Chip(
+                              visualDensity: VisualDensity.compact,
+                              avatar: Icon(d.ikon, size: 16, color: d.renk),
+                              label: Text('${d.raporEtiketi}: ${ozet.adet(d)}'),
+                            ),
+                        Chip(
+                          visualDensity: VisualDensity.compact,
+                          avatar: const Icon(Icons.more_time,
+                              size: 16, color: Color(0xFF6A1B9A)),
+                          label: Text('Mesai: ${Bicim.sayi(ozet.mesaiSaat)} saat'),
+                        ),
+                      ]),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ---- Hesap dökümü
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Hakediş Hesabı',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                      const SizedBox(height: 8),
+                      for (final s in uretici.hesapSatirlari)
+                        _satir(context, s.$1, s.$2,
+                            vurgulu: s.$1.startsWith('BRÜT') ||
+                                s.$1.startsWith('KALAN')),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _satir(BuildContext context, String e, String d, {bool vurgulu = false}) {
+    final renk = Theme.of(context).colorScheme;
+    final stil = TextStyle(
+      fontWeight: vurgulu ? FontWeight.w800 : FontWeight.normal,
+      fontSize: vurgulu ? 15 : 13.5,
+    );
+    return Container(
+      margin: EdgeInsets.only(top: vurgulu ? 6 : 0),
+      padding: EdgeInsets.symmetric(horizontal: vurgulu ? 8 : 0, vertical: 5),
+      decoration: vurgulu
+          ? BoxDecoration(
+              color: renk.secondaryContainer.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(8))
+          : null,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: Text(e, style: stil)),
+          const SizedBox(width: 8),
+          Text(d, style: stil),
+        ],
+      ),
+    );
+  }
+
+  /// Dosyayı önce hazırlar, sonra "Paylaş / Kaydet" penceresi açar.
+  /// (iPhone web uygulamasında paylaşım, kullanıcının dokunuşuyla hemen başlamalı;
+  /// bu yüzden dosya önceden hazırlanır.)
+  Future<void> _hazirlaVeGoster(BuildContext context, RaporUretici u,
+      {required bool pdf}) async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    Uint8List? veri;
+    Object? hata;
+    try {
+      veri = pdf ? await u.pdf() : u.excel();
+    } catch (e) {
+      hata = e;
+    }
+    if (!context.mounted) return;
+    Navigator.of(context, rootNavigator: true).pop();
+
+    if (veri == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Dosya oluşturulamadı: $hata')));
+      return;
+    }
+
+    final ad = u.dosyaAdi(pdf ? 'pdf' : 'xlsx');
+    final mime = pdf ? Paylasim.pdfMime : Paylasim.excelMime;
+    final dosya = veri;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(children: [
+                Icon(pdf ? Icons.picture_as_pdf : Icons.table_view,
+                    size: 32,
+                    color: pdf ? const Color(0xFFC62828) : const Color(0xFF2E7D32)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(ad,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      Text('${(dosya.length / 1024).toStringAsFixed(0)} KB • hazır',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 18),
+              Builder(
+                builder: (btnCtx) => FilledButton.icon(
+                  onPressed: () async {
+                    try {
+                      await Paylasim.paylas(
+                          btnCtx, dosya, ad, mime, u.paylasimMetni);
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text(
+                                'Paylaşım açılamadı, "Cihaza kaydet"i deneyin. ($e)')));
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.share),
+                  label: const Text('Paylaş (WhatsApp, e-posta...)'),
+                  style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(50)),
+                ),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final ok = await Paylasim.kaydet(dosya, ad, mime);
+                  if (ok && ctx.mounted) {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Dosya kaydedildi')));
+                  }
+                },
+                icon: const Icon(Icons.download),
+                label: const Text('Cihaza kaydet'),
+                style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(50)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
