@@ -1,6 +1,9 @@
 # GitHub'a yüklenince:
-#  1) Android APK derlenir  -> Actions > son çalışma > "Puantajim-APK"
+#  1) Android APK derlenir ve SABİT bir linke yüklenir (Releases):
+#       https://github.com/KULLANICI/DEPO/releases/latest/download/Puantajim.apk
+#     Uygulama açılınca yeni sürümü görür ve "Güncelle" uyarısı çıkarır.
 #  2) Web uygulaması (iPhone "Ana Ekrana Ekle" için) GitHub Pages'te yayınlanır
+#       https://KULLANICI.github.io/DEPO/
 name: Derle ve Yayınla
 
 on:
@@ -9,13 +12,19 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # Releases'e APK yüklemek için
   pages: write
   id-token: write
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
+
+env:
+  SURUM: ${{ github.run_number }}
+  SURUM_ADI: 1.0.${{ github.run_number }}
+  APK_LINKI: https://github.com/${{ github.repository }}/releases/latest/download/Puantajim.apk
+  GUNCELLEME_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/surum.json
 
 jobs:
   derle:
@@ -36,9 +45,13 @@ jobs:
       - name: Android klasörünü oluştur (mevcut dosyalara dokunmaz)
         run: flutter create --platforms=android,web --org com.santiye --project-name puantajim .
 
-      - name: Uygulama adı ve simgesi
+      - name: Uygulama adı, simge ve internet izni
         run: |
-          sed -i 's/android:label="puantajim"/android:label="Puantajım"/' android/app/src/main/AndroidManifest.xml
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's/android:label="puantajim"/android:label="Puantajım"/' $M
+          # Güncelleme kontrolü için internet izni (yoksa ekle)
+          grep -q 'android.permission.INTERNET' $M || \
+            sed -i '0,/<application/s//<uses-permission android:name="android.permission.INTERNET"\/>\n    <application/' $M
           if [ -d android_ikon ]; then cp -r android_ikon/* android/app/src/main/res/; fi
 
       - name: Sabit imza anahtarı (APK güncellemeleri eski sürümün üzerine kurulabilsin)
@@ -57,18 +70,47 @@ jobs:
         run: flutter test
 
       - name: APK derle
-        run: flutter build apk --release
+        run: |
+          flutter build apk --release \
+            --build-name=$SURUM_ADI --build-number=$SURUM \
+            --dart-define=SURUM=$SURUM \
+            --dart-define=GUNCELLEME_URL=$GUNCELLEME_URL
+          cp build/app/outputs/flutter-apk/app-release.apk Puantajim.apk
 
       - name: Web uygulamasını derle
         run: |
-          flutter build web --release --no-web-resources-cdn --base-href "/${{ github.event.repository.name }}/"
+          flutter build web --release --no-web-resources-cdn \
+            --base-href "/${{ github.event.repository.name }}/" \
+            --dart-define=SURUM=$SURUM
           dart run tool/pwa_hazirla.dart
 
-      - name: APK'yı yükle
+      - name: Sürüm bilgisi dosyası (surum.json)
+        env:
+          NOTLAR: ${{ github.event.head_commit.message }}
+        run: |
+          jq -n \
+            --argjson surum "$SURUM" \
+            --arg surumAdi "$SURUM_ADI" \
+            --arg apk "$APK_LINKI" \
+            --arg notlar "${NOTLAR:-}" \
+            '{surum: $surum, surumAdi: $surumAdi, apk: $apk, notlar: $notlar}' \
+            > build/web/surum.json
+          cat build/web/surum.json
+
+      - name: APK'yı sabit linke yükle (Releases)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.SURUM_ADI }}
+          name: Puantajım ${{ env.SURUM_ADI }}
+          body: ${{ github.event.head_commit.message }}
+          files: Puantajim.apk
+          make_latest: true
+
+      - name: APK'yı ayrıca Actions'a yükle
         uses: actions/upload-artifact@v4
         with:
           name: Puantajim-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: Puantajim.apk
 
       - uses: actions/configure-pages@v5
 
