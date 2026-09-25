@@ -6,6 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../models/gun_kaydi.dart';
+import '../models/not_kaydi.dart';
 import '../models/para_hareketi.dart';
 import '../models/profil.dart';
 import 'bicim.dart';
@@ -18,12 +19,14 @@ class RaporUretici {
   final AylikOzet ozet;
   final List<GunKaydi> kayitlar;
   final List<ParaHareketi> hareketler;
+  final List<NotKaydi> notlar;
 
   RaporUretici({
     required this.profil,
     required this.ozet,
     required this.kayitlar,
     required this.hareketler,
+    this.notlar = const [],
   });
 
   String get _ayKodu =>
@@ -48,31 +51,69 @@ class RaporUretici {
   }
 
   /// Hesap dökümü satırları (PDF ve Excel ortak)
+  /// Tamamı büyük harf olan satırlar (TOPLAM, KALAN, ELDEN...) vurgulu gösterilir
+  static bool vurgulu(String etiket) =>
+      etiket.isNotEmpty && etiket == etiket.toUpperCase();
+
+  /// Hesap dökümü satırları (PDF, Excel ve ekran ortak)
   List<(String, String)> get hesapSatirlari {
     final o = ozet;
     final aylik = o.ucretTipi == UcretTipi.aylik;
     return [
       if (aylik) ...[
-        ('Aylık maaş', Bicim.para(o.ucret)),
+        ('Aylık maaş (30 gün)', Bicim.para(o.ucret)),
         ('Günlük ücret (maaş ÷ 30)', Bicim.para(o.gunlukUcret)),
-        (
-          'Devamsızlık kesintisi (${Bicim.sayi(o.kesintiGunu)} gün)',
-          '− ${Bicim.para(o.devamsizlikTutari)}'
-        ),
+        ('Ücret ödenen gün', '${Bicim.sayi(o.odenenGun)} / 30'),
+        if (o.kesintiGunu > 0)
+          (
+            'Eksik gün kesintisi (${Bicim.sayi(o.kesintiGunu)} gün)',
+            '− ${Bicim.para(o.devamsizlikTutari)}'
+          ),
       ] else ...[
         ('Günlük yevmiye', Bicim.para(o.gunlukUcret)),
         ('Ücret ödenen gün', Bicim.sayi(o.odenenGun)),
       ],
       ('Gün ücreti toplamı', Bicim.para(o.temelUcret)),
-      (
-        'Fazla mesai (${Bicim.sayi(o.mesaiSaat)} saat × ${Bicim.para(o.saatlikUcret)} × ${Bicim.sayi(o.mesaiKatsayisi)})',
-        '+ ${Bicim.para(o.mesaiUcreti)}'
-      ),
+      if (o.mesaiSaat > 0)
+        (
+          'Fazla mesai (${Bicim.sayi(o.mesaiSaat)} sa × ${Bicim.para(o.saatlikUcret)} × ${Bicim.sayi(o.mesaiKatsayisi)})',
+          '+ ${Bicim.para(o.mesaiUcreti)}'
+        ),
       if (o.ekOdeme > 0) ('Ek ödeme / prim', '+ ${Bicim.para(o.ekOdeme)}'),
-      ('BRÜT HAKEDİŞ', Bicim.para(o.brut)),
+      ('TOPLAM HAKEDİŞ', Bicim.para(o.brut)),
+      if (o.raporGunu > 0 && o.raporTamOdenir)
+        (
+          'SGK rapor parası (${Bicim.sayi(o.sgkOdenekGunu)} gün, SGK öder, tahmini)',
+          '− ${Bicim.para(o.sgkOdenegi)}'
+        ),
       if (o.avans > 0) ('Alınan avans', '− ${Bicim.para(o.avans)}'),
       if (o.kesinti > 0) ('Diğer kesintiler', '− ${Bicim.para(o.kesinti)}'),
-      ('KALAN ALACAK (NET)', Bicim.para(o.net)),
+      ('KALAN ALACAK', Bicim.para(o.net)),
+    ];
+  }
+
+  /// Kalan alacağın banka / elden dağılımı (banka ayarı varsa)
+  List<(String, String)> get odemeSatirlari {
+    final o = ozet;
+    if (!o.bankaVar) {
+      return [('ELDEN ÖDENECEK', Bicim.para(o.net))];
+    }
+    final kaynak = o.bankaTipi == BankaTipi.asgari
+        ? '${o.asgariYili} net asgari ücret'
+        : 'anlaşılan tutar';
+    return [
+      ('Bankaya yatan (30 gün, $kaynak)', Bicim.para(o.bankaAylik)),
+      ('Bankaya yatacak gün (SGK prim günü)', '${Bicim.sayi(o.primGunu)} / 30'),
+      ('Bankaya yatacak tutar', Bicim.para(o.bankaHakedis)),
+      if (o.hacizOrani > 0)
+        ('Haciz kesintisi (${o.hacizEtiketi}, icraya gider)', '− ${Bicim.para(o.haciz)}'),
+      ('BANKAYA NET YATACAK', Bicim.para(o.bankayaYatan)),
+      ('ELDEN ÖDENECEK', Bicim.para(o.elden)),
+      if (o.raporGunu > 0)
+        (
+          'SGK rapor parası (ayrıca SGK yatırır, tahmini)',
+          Bicim.para(o.sgkOdenegi)
+        ),
     ];
   }
 
@@ -230,6 +271,31 @@ class RaporUretici {
             ),
           ],
 
+          // ---- Not defteri
+          if (notlar.isNotEmpty) ...[
+            pw.SizedBox(height: 12),
+            pw.Text('Notlar',
+                style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 4),
+            pw.TableHelper.fromTextArray(
+              headers: const ['Tarih', 'Not'],
+              data: notlar
+                  .map((n) => [
+                        Bicim.kisaTarih(Bicim.anahtarOku(n.tarih)),
+                        n.metin.trim(),
+                      ])
+                  .toList(),
+              headerStyle: baslikStil,
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey700),
+              cellStyle: k8,
+              cellAlignment: pw.Alignment.topLeft,
+              columnWidths: const {
+                0: pw.FixedColumnWidth(60),
+                1: pw.FlexColumnWidth(),
+              },
+            ),
+          ],
+
           if (ozet.isaretsizGun > 0) ...[
             pw.SizedBox(height: 8),
             pw.Text(
@@ -304,8 +370,13 @@ class RaporUretici {
               style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
           pw.SizedBox(height: 4),
           for (final s in hesapSatirlari)
-            _hesapSatiri(s.$1, s.$2,
-                vurgulu: s.$1.startsWith('BRÜT') || s.$1.startsWith('KALAN')),
+            _hesapSatiri(s.$1, s.$2, vurgulu: vurgulu(s.$1)),
+          pw.SizedBox(height: 8),
+          pw.Text('Ödeme Dağılımı',
+              style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 4),
+          for (final s in odemeSatirlari)
+            _hesapSatiri(s.$1, s.$2, vurgulu: vurgulu(s.$1)),
         ],
       ),
     );
@@ -411,12 +482,24 @@ class RaporUretici {
     _kalinYap(h, h.maxRows - 1, 1, kalin);
     for (final s in hesapSatirlari) {
       h.appendRow([TextCellValue(s.$1), TextCellValue(s.$2)]);
-      if (s.$1.startsWith('BRÜT') || s.$1.startsWith('KALAN')) {
-        _kalinYap(h, h.maxRows - 1, 2, kalin);
-      }
+      if (vurgulu(s.$1)) _kalinYap(h, h.maxRows - 1, 2, kalin);
     }
     h.appendRow([TextCellValue('')]);
-    h.appendRow([TextCellValue('Net alacak (sayı)'), DoubleCellValue(_yuvarla(ozet.net))]);
+    h.appendRow([TextCellValue('Ödeme Dağılımı')]);
+    _kalinYap(h, h.maxRows - 1, 1, kalin);
+    for (final s in odemeSatirlari) {
+      h.appendRow([TextCellValue(s.$1), TextCellValue(s.$2)]);
+      if (vurgulu(s.$1)) _kalinYap(h, h.maxRows - 1, 2, kalin);
+    }
+    h.appendRow([TextCellValue('')]);
+    h.appendRow([TextCellValue('Kalan alacak (sayı)'), DoubleCellValue(_yuvarla(ozet.net))]);
+    if (ozet.bankaVar) {
+      h.appendRow([TextCellValue('Bankaya net (sayı)'), DoubleCellValue(_yuvarla(ozet.bankayaYatan))]);
+      if (ozet.hacizOrani > 0) {
+        h.appendRow([TextCellValue('Haciz (sayı)'), DoubleCellValue(_yuvarla(ozet.haciz))]);
+      }
+    }
+    h.appendRow([TextCellValue('Elden (sayı)'), DoubleCellValue(_yuvarla(ozet.elden))]);
     h.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 0)).cellStyle = kalin;
     h.setColumnWidth(0, 55);
     h.setColumnWidth(1, 20);
@@ -437,6 +520,23 @@ class RaporUretici {
     a.setColumnWidth(1, 16);
     a.setColumnWidth(2, 35);
     a.setColumnWidth(3, 14);
+
+    // ---- Sayfa 4: Notlar
+    if (notlar.isNotEmpty) {
+      final n = excel['Notlar'];
+      n.appendRow([TextCellValue('Tarih'), TextCellValue('Saat'), TextCellValue('Not')]);
+      _kalinYap(n, 0, 3, kalin);
+      for (final x in notlar) {
+        n.appendRow([
+          TextCellValue(Bicim.kisaTarih(Bicim.anahtarOku(x.tarih))),
+          TextCellValue(x.saat),
+          TextCellValue(x.metin.trim()),
+        ]);
+      }
+      n.setColumnWidth(0, 12);
+      n.setColumnWidth(1, 8);
+      n.setColumnWidth(2, 80);
+    }
 
     // encode(): web'de otomatik indirme yapmadan sadece baytları verir
     final bytes = excel.encode();

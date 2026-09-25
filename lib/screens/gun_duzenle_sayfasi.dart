@@ -3,16 +3,21 @@ import 'package:flutter/material.dart';
 import '../data/depo.dart';
 import '../models/gun_kaydi.dart';
 import '../services/bicim.dart';
+import 'notlar_sayfasi.dart';
 
 /// Bir günün kaydını açılır alt pencerede düzenler.
-Future<void> gunDuzenle(BuildContext context, DateTime tarih) {
-  return showModalBottomSheet<void>(
+/// Pencereden "Bu güne not yaz" seçilirse not defteri o tarihle açılır.
+Future<void> gunDuzenle(BuildContext context, DateTime tarih) async {
+  final sonuc = await showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
     showDragHandle: true,
     builder: (_) => GunDuzenlePenceresi(tarih: tarih),
   );
+  if (sonuc == 'not' && context.mounted) {
+    await notDuzenle(context, tarih: tarih);
+  }
 }
 
 class GunDuzenlePenceresi extends StatefulWidget {
@@ -28,6 +33,7 @@ class _GunDuzenlePenceresiState extends State<GunDuzenlePenceresi> {
   late GunDurumu _durum;
   String? _giris, _cikis;
   double _mesai = 0;
+  RaporTuru _raporTuru = RaporTuru.ayakta;
   late final TextEditingController _not;
   late final bool _yeni;
 
@@ -44,6 +50,7 @@ class _GunDuzenlePenceresiState extends State<GunDuzenlePenceresi> {
     _giris = k?.giris;
     _cikis = k?.cikis;
     _mesai = k?.mesaiSaat ?? 0;
+    _raporTuru = k?.raporTuru ?? RaporTuru.ayakta;
     _not = TextEditingController(text: k?.not ?? '');
   }
 
@@ -98,6 +105,7 @@ class _GunDuzenlePenceresiState extends State<GunDuzenlePenceresi> {
       cikis: mesaiVar ? _cikis : null,
       mesaiSaat: mesaiVar ? _mesai : 0,
       not: _not.text.trim().isEmpty ? null : _not.text.trim(),
+      raporTuru: _raporTuru,
     ));
     if (mounted) Navigator.pop(context);
   }
@@ -143,6 +151,31 @@ class _GunDuzenlePenceresiState extends State<GunDuzenlePenceresi> {
                   ),
               ],
             ),
+
+            // ---- Rapor türü (SGK rapor parası hesabı için)
+            if (_durum == GunDurumu.raporlu) ...[
+              const SizedBox(height: 16),
+              Text('Rapor türü', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 8),
+              SegmentedButton<RaporTuru>(
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(value: RaporTuru.ayakta, label: Text('Ayakta')),
+                  ButtonSegment(value: RaporTuru.yatarak, label: Text('Yatarak')),
+                  ButtonSegment(value: RaporTuru.isKazasi, label: Text('İş kazası')),
+                ],
+                selected: {_raporTuru},
+                onSelectionChanged: (s) => setState(() => _raporTuru = s.first),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _raporTuru == RaporTuru.isKazasi
+                    ? 'İş kazasında SGK 1. günden itibaren günlük kazancın 2/3\'ünü öder.'
+                    : 'Hastalıkta SGK ilk 2 günü ödemez; 3. günden itibaren günlük kazancın '
+                        '${_raporTuru == RaporTuru.yatarak ? '1/2\'sini (yatarak)' : '2/3\'ünü (ayakta)'} öder.',
+                style: TextStyle(fontSize: 12, color: renk.onSurfaceVariant),
+              ),
+            ],
 
             // ---- Giriş / çıkış ve mesai (sadece çalışılan günlerde)
             AnimatedSize(
@@ -194,7 +227,15 @@ class _GunDuzenlePenceresiState extends State<GunDuzenlePenceresi> {
                 prefixIcon: Icon(Icons.notes),
               ),
             ),
-            const SizedBox(height: 20),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => Navigator.pop(context, 'not'),
+                icon: const Icon(Icons.sticky_note_2_outlined),
+                label: const Text('Bu güne not defterine not yaz'),
+              ),
+            ),
+            const SizedBox(height: 8),
             Row(children: [
               if (!_yeni)
                 TextButton.icon(

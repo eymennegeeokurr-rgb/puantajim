@@ -71,6 +71,7 @@ extension GunDurumuX on GunDurumu {
       }[this]!;
 
   /// AYLIKÇI için maaştan düşülecek gün (gelmedi, ücretsiz izin, raporlu: 1; yarım: 0,5).
+  /// (Raporlu günler, profilde "rapor tam ödenir" açıksa hesaplamada düşülmez.)
   /// Hafta tatili, resmi tatil ve ücretli izin maaştan düşülmez.
   double get aylikKesintiGunu {
     switch (this) {
@@ -112,6 +113,35 @@ extension GunDurumuX on GunDurumu {
       .firstWhere((d) => d.name == ad, orElse: () => GunDurumu.geldi);
 }
 
+/// Rapor türü (SGK rapor parası hesabı için)
+enum RaporTuru {
+  /// Hastalık - ayakta tedavi: 3. günden itibaren günlük kazancın 2/3'ü
+  ayakta,
+
+  /// Hastalık - yatarak tedavi: 3. günden itibaren günlük kazancın 1/2'si
+  yatarak,
+
+  /// İş kazası / meslek hastalığı: 1. günden itibaren günlük kazancın 2/3'ü
+  isKazasi,
+}
+
+extension RaporTuruX on RaporTuru {
+  String get etiket => const {
+        RaporTuru.ayakta: 'Ayakta tedavi',
+        RaporTuru.yatarak: 'Yatarak (hastane)',
+        RaporTuru.isKazasi: 'İş kazası',
+      }[this]!;
+
+  /// SGK'nın ödediği oran (günlük kazancın)
+  double get oran => this == RaporTuru.yatarak ? 0.5 : 2 / 3;
+
+  /// SGK kaçıncı günden itibaren öder? (hastalıkta ilk 2 gün ödenmez)
+  int get odemeBaslangicGunu => this == RaporTuru.isKazasi ? 1 : 3;
+
+  static RaporTuru adindan(String? ad) => RaporTuru.values
+      .firstWhere((t) => t.name == ad, orElse: () => RaporTuru.ayakta);
+}
+
 /// Bir günün puantaj kaydı. Tarih (yyyy-MM-dd) benzersiz anahtardır.
 class GunKaydi {
   final String tarih;
@@ -121,6 +151,9 @@ class GunKaydi {
   final double mesaiSaat;
   final String? not;
 
+  /// Sadece durum "Raporlu" ise anlamlı
+  final RaporTuru raporTuru;
+
   const GunKaydi({
     required this.tarih,
     required this.durum,
@@ -128,6 +161,7 @@ class GunKaydi {
     this.cikis,
     this.mesaiSaat = 0,
     this.not,
+    this.raporTuru = RaporTuru.ayakta,
   });
 
   Map<String, dynamic> toJson() => {
@@ -137,6 +171,7 @@ class GunKaydi {
         if (cikis != null) 'cikis': cikis,
         if (mesaiSaat > 0) 'mesai': mesaiSaat,
         if (not != null && not!.isNotEmpty) 'not': not,
+        if (durum == GunDurumu.raporlu) 'rapor': raporTuru.name,
       };
 
   factory GunKaydi.fromJson(Map<String, dynamic> j) => GunKaydi(
@@ -146,6 +181,7 @@ class GunKaydi {
         cikis: j['cikis'] as String?,
         mesaiSaat: (j['mesai'] as num?)?.toDouble() ?? 0,
         not: j['not'] as String?,
+        raporTuru: RaporTuruX.adindan(j['rapor'] as String?),
       );
 
   GunKaydi copyWith({
@@ -159,6 +195,7 @@ class GunKaydi {
         cikis: cikis,
         mesaiSaat: mesaiSaat ?? this.mesaiSaat,
         not: not,
+        raporTuru: raporTuru,
       );
 
   /// Giriş-çıkış arası toplam süre (saat). Gece yarısını geçen vardiya desteklenir.

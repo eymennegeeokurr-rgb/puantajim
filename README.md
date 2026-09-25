@@ -4,6 +4,7 @@ Her çalışan kendi telefonuna kurar, **kendi** puantajını tutar:
 - Her gün **Geldim / Gelmedim / İzin / Yarım gün / Tatil / Raporlu**
 - İsteğe bağlı **giriş-çıkış saati** → fazla mesai otomatik önerilir
 - **Avans, kesinti, ek ödeme** kayıtları
+- **Not defteri**: her not o güne kaydedilir, tek tek veya aylık toplu WhatsApp'tan gönderilir
 - Ay sonunda **hakediş hesabı** + **PDF / Excel** olarak WhatsApp'tan gönderme
 
 **Sunucu yok, hesap yok, internet gerekmez.** Herkesin verisi sadece kendi telefonundadır; kimse kimsenin kaydını göremez.
@@ -17,16 +18,38 @@ Her çalışan kendi telefonuna kurar, **kendi** puantajını tutar:
 
 ---
 
-## 1. Hesap Kuralları
+## 1. Hesap Kuralları (aylıkçı, her ay 30 gün)
 
-| | Aylık maaş | Günlük yevmiye |
-|---|---|---|
-| Günlük ücret | Maaş ÷ 30 | Yevmiye |
-| Temel ücret | Maaş − (Gelmedi + Ücretsiz İzin + Raporlu + Yarım×0,5) × günlük | (Geldi + Ücretli İzin + Yarım×0,5) × yevmiye |
-| Hafta tatili / resmi tatil | Maaştan düşülmez | Ödenmez (çalıştıysa mesai girilir) |
-| Saatlik ücret | Günlük ÷ 7,5 saat | Günlük ÷ 7,5 saat |
-| Mesai ücreti | Mesai saati × saatlik × 1,5 | aynı |
-| **Net (kalan alacak)** | Temel + Mesai + Ek ödeme − Avans − Kesinti | aynı |
+| Kalem | Hesap |
+|---|---|
+| Günlük ücret | Maaş ÷ 30 |
+| Eksik gün | Gelmedi + Ücretsiz İzin + Raporlu + Yarım gün × 0,5 |
+| Ödenen gün | 31 çeken ayda: 31 − eksik gün (**en fazla 30**) · Diğer aylarda: 30 − eksik gün |
+| Temel ücret | Ödenen gün × günlük ücret |
+| Hafta tatili / resmi tatil / ücretli izin | Maaştan düşülmez |
+| Saatlik ücret | Günlük ÷ 7,5 saat |
+| Mesai ücreti | Mesai saati × saatlik × 1,5 |
+| **Net (kalan alacak)** | Temel + Mesai + Ek ödeme − Avans − Kesinti |
+
+Örnekler (45.000 ₺ maaş): 31 çeken ayda hepsi "Geldim" → 30 gün, 45.000 ₺ · 31 çeken ayda 1 gün gelmedi → yine 30 gün · 2 gün gelmedi → 29 gün · Şubat'ta tam çalıştı → 30 gün.
+
+### Banka / Elden, Haciz, Rapor
+
+| Kalem | Hesap |
+|---|---|
+| Bankaya yatan (30 gün) | **Asgari**: o yılın net asgari ücreti (2026: ₺28.075,50) · **Anlaşılan**: firma ile anlaşılan net tutar · **Yok**: hepsi elden |
+| Prim günü | Ödenen gün − raporlu günler (raporlu günleri SGK öder, bankaya yatmaz) |
+| Bankaya yatacak | Bankaya yatan ÷ 30 × prim günü |
+| Haciz | Bankaya yatacak × 1/4 veya 1/10 → icraya gider |
+| Bankaya net | Bankaya yatacak − haciz |
+| Elden | Kalan alacak − bankaya yatacak |
+| SGK rapor parası (tahmini) | Günlük kazanç (SGK brüt ÷ 30, en az brüt asgari/30) × 2/3 ayakta · 1/2 yatarak · hastalıkta 3. günden, iş kazasında 1. günden |
+| "Raporlu günlerde maaş tam" açık | Raporlu günler maaştan düşülmez; SGK'nın ödediği tahmini tutar düşülür, farkı işveren öder |
+
+Örnek: 45.000 ₺ maaş, bankaya 35.875,50 ₺, 30 gün tam → Banka 35.875,50 + Elden 9.124,50.
+Haciz 1/4 → bankaya 26.906,63 yatar, 8.968,88 icraya gider, elden yine 9.124,50.
+
+Yeni yılın asgari ücreti açıklanınca `lib/services/hesaplama.dart` içindeki `AsgariUcret.tablo`'ya bir satır eklenir.
 
 7,5 saat, ×1,5 katsayı ve 1 saat mola **Profil > Mesai ayarları**'ndan değiştirilebilir.
 Giriş 08:00 – Çıkış 19:00 → 11 sa − 1 mola − 7,5 normal = **2,5 saat mesai** önerilir.

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/gun_kaydi.dart';
+import '../models/not_kaydi.dart';
 import '../models/para_hareketi.dart';
 import '../models/profil.dart';
 import '../services/bicim.dart';
@@ -22,6 +23,7 @@ class Depo extends ChangeNotifier {
   static const _kProfil = 'profil';
   static const _kGunler = 'gunler';
   static const _kHareketler = 'hareketler';
+  static const _kNotlar = 'notlar';
   static const _kTema = 'tema';
   static const yedekSurumu = 1;
 
@@ -30,6 +32,7 @@ class Depo extends ChangeNotifier {
   Profil? _profil;
   final Map<String, GunKaydi> _gunler = {};
   final List<ParaHareketi> _hareketler = [];
+  final List<NotKaydi> _notlar = [];
 
   /// Tema (açık / koyu / sistem)
   final temaModu = ValueNotifier<ThemeMode>(ThemeMode.system);
@@ -59,6 +62,7 @@ class Depo extends ChangeNotifier {
     _profil = null;
     _gunler.clear();
     _hareketler.clear();
+    _notlar.clear();
 
     final p = _prefs.getString(_kProfil);
     if (p != null) {
@@ -79,6 +83,13 @@ class Depo extends ChangeNotifier {
         _hareketler.add(ParaHareketi.fromJson(e as Map<String, dynamic>));
       }
     }
+
+    final n = _prefs.getString(_kNotlar);
+    if (n != null) {
+      for (final e in jsonDecode(n) as List<dynamic>) {
+        _notlar.add(NotKaydi.fromJson(e as Map<String, dynamic>));
+      }
+    }
     profilVar.value = _profil != null;
   }
 
@@ -87,6 +98,12 @@ class Depo extends ChangeNotifier {
 
   Future<void> _hareketleriYaz() => _prefs.setString(
       _kHareketler, jsonEncode(_hareketler.map((h) => h.toJson()).toList()));
+
+  Future<void> _notlariYaz() => _prefs.setString(
+      _kNotlar, jsonEncode(_notlar.map((n) => n.toJson()).toList()));
+
+  static String _ayOnEki(DateTime ay) =>
+      '${ay.year.toString().padLeft(4, '0')}-${ay.month.toString().padLeft(2, '0')}-';
 
   // ---------------------------------------------------------------------------
   // PROFİL / TEMA
@@ -112,7 +129,7 @@ class Depo extends ChangeNotifier {
 
   /// Seçilen ayın kayıtları (tarihe göre sıralı)
   List<GunKaydi> ayKayitlari(DateTime ay) {
-    final onEk = '${ay.year.toString().padLeft(4, '0')}-${ay.month.toString().padLeft(2, '0')}-';
+    final onEk = _ayOnEki(ay);
     final l = _gunler.values.where((k) => k.tarih.startsWith(onEk)).toList()
       ..sort((a, b) => a.tarih.compareTo(b.tarih));
     return l;
@@ -135,7 +152,7 @@ class Depo extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   List<ParaHareketi> ayHareketleri(DateTime ay) {
-    final onEk = '${ay.year.toString().padLeft(4, '0')}-${ay.month.toString().padLeft(2, '0')}-';
+    final onEk = _ayOnEki(ay);
     final l = _hareketler.where((h) => h.tarih.startsWith(onEk)).toList()
       ..sort((a, b) => a.tarih.compareTo(b.tarih));
     return l;
@@ -160,6 +177,45 @@ class Depo extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
+  // NOT DEFTERİ
+  // ---------------------------------------------------------------------------
+
+  /// Seçilen ayın notları (tarihe, sonra saate göre sıralı - eskiden yeniye)
+  List<NotKaydi> ayNotlari(DateTime ay) {
+    final onEk = _ayOnEki(ay);
+    final l = _notlar.where((n) => n.tarih.startsWith(onEk)).toList()
+      ..sort((a, b) {
+        final t = a.tarih.compareTo(b.tarih);
+        return t != 0 ? t : a.saat.compareTo(b.saat);
+      });
+    return l;
+  }
+
+  /// O güne ait not var mı? (takvimde işaret için)
+  bool notVar(DateTime t) {
+    final anahtar = Bicim.anahtar(t);
+    return _notlar.any((n) => n.tarih == anahtar);
+  }
+
+  /// Aynı id varsa günceller, yoksa ekler
+  Future<void> notKaydet(NotKaydi n) async {
+    final i = _notlar.indexWhere((x) => x.id == n.id);
+    if (i >= 0) {
+      _notlar[i] = n;
+    } else {
+      _notlar.add(n);
+    }
+    notifyListeners();
+    await _notlariYaz();
+  }
+
+  Future<void> notSil(String id) async {
+    _notlar.removeWhere((n) => n.id == id);
+    notifyListeners();
+    await _notlariYaz();
+  }
+
+  // ---------------------------------------------------------------------------
   // YEDEKLEME
   // ---------------------------------------------------------------------------
 
@@ -171,6 +227,7 @@ class Depo extends ChangeNotifier {
         'profil': _profil?.toJson(),
         'gunler': _gunler.values.map((g) => g.toJson()).toList(),
         'hareketler': _hareketler.map((h) => h.toJson()).toList(),
+        'notlar': _notlar.map((n) => n.toJson()).toList(),
       });
 
   /// Yedekten geri yükler. Hatalı dosyada istisna fırlatır, mevcut veri bozulmaz.
@@ -189,6 +246,9 @@ class Depo extends ChangeNotifier {
     final hareketler = (j['hareketler'] as List<dynamic>? ?? [])
         .map((e) => ParaHareketi.fromJson(e as Map<String, dynamic>))
         .toList();
+    final notlar = (j['notlar'] as List<dynamic>? ?? [])
+        .map((e) => NotKaydi.fromJson(e as Map<String, dynamic>))
+        .toList();
 
     if (profil != null) {
       await _prefs.setString(_kProfil, jsonEncode(profil.toJson()));
@@ -197,6 +257,8 @@ class Depo extends ChangeNotifier {
         jsonEncode({for (final g in gunler) g.tarih: g.toJson()}));
     await _prefs.setString(_kHareketler,
         jsonEncode(hareketler.map((h) => h.toJson()).toList()));
+    await _prefs.setString(
+        _kNotlar, jsonEncode(notlar.map((n) => n.toJson()).toList()));
     _verileriOku();
     notifyListeners();
   }
@@ -206,6 +268,7 @@ class Depo extends ChangeNotifier {
     await _prefs.remove(_kProfil);
     await _prefs.remove(_kGunler);
     await _prefs.remove(_kHareketler);
+    await _prefs.remove(_kNotlar);
     _verileriOku();
     notifyListeners();
   }

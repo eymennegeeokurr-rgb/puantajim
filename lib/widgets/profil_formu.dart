@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../models/profil.dart';
 import '../services/bicim.dart';
+import '../services/hesaplama.dart';
 
 /// Profil bilgileri formu (kurulumda ve ayarlarda kullanılır).
 class ProfilFormu extends StatefulWidget {
@@ -23,10 +24,23 @@ class ProfilFormu extends StatefulWidget {
 
 class _ProfilFormuState extends State<ProfilFormu> {
   final _form = GlobalKey<FormState>();
-  late final TextEditingController _ad, _gorev, _firma, _ucret, _saat, _kat, _mola;
-  late UcretTipi _tip;
+  late final TextEditingController _ad,
+      _gorev,
+      _firma,
+      _ucret,
+      _saat,
+      _kat,
+      _mola,
+      _banka,
+      _sgkBrut;
+  late BankaTipi _bankaTipi;
+  late double _haciz;
+  late bool _raporTam;
   bool _gelismis = false;
   bool _kaydediliyor = false;
+
+  static String _tutarYazi(double v) =>
+      v == 0 ? '' : Bicim.sayi(v).replaceAll('.', '');
 
   @override
   void initState() {
@@ -35,18 +49,22 @@ class _ProfilFormuState extends State<ProfilFormu> {
     _ad = TextEditingController(text: p?.adSoyad ?? '');
     _gorev = TextEditingController(text: p?.gorev ?? '');
     _firma = TextEditingController(text: p?.firma ?? '');
-    _ucret = TextEditingController(
-        text: p == null || p.ucret == 0 ? '' : Bicim.sayi(p.ucret).replaceAll('.', ''));
+    _ucret = TextEditingController(text: _tutarYazi(p?.ucret ?? 0));
     _saat = TextEditingController(text: Bicim.sayi(p?.gunlukSaat ?? 7.5));
     _kat = TextEditingController(text: Bicim.sayi(p?.mesaiKatsayisi ?? 1.5));
     _mola = TextEditingController(text: Bicim.sayi(p?.molaSaat ?? 1));
-    _tip = p?.ucretTipi ?? UcretTipi.aylik;
+    _banka = TextEditingController(text: _tutarYazi(p?.bankaTutar ?? 0));
+    _sgkBrut = TextEditingController(text: _tutarYazi(p?.sgkBrut ?? 0));
+    _bankaTipi = p?.bankaTipi ?? BankaTipi.yok;
+    _haciz = p?.hacizOrani ?? 0;
+    _raporTam = p?.raporTamOdenir ?? true;
     _ucret.addListener(() => setState(() {}));
+    _banka.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
-    for (final c in [_ad, _gorev, _firma, _ucret, _saat, _kat, _mola]) {
+    for (final c in [_ad, _gorev, _firma, _ucret, _saat, _kat, _mola, _banka, _sgkBrut]) {
       c.dispose();
     }
     super.dispose();
@@ -59,11 +77,18 @@ class _ProfilFormuState extends State<ProfilFormu> {
       adSoyad: _ad.text.trim(),
       gorev: _gorev.text.trim(),
       firma: _firma.text.trim(),
-      ucretTipi: _tip,
+      // Uygulama aylıkçı çalışanlar içindir (maaş ÷ 30)
+      ucretTipi: UcretTipi.aylik,
       ucret: Bicim.sayiOku(_ucret.text) ?? 0,
       gunlukSaat: Bicim.sayiOku(_saat.text) ?? 7.5,
       mesaiKatsayisi: Bicim.sayiOku(_kat.text) ?? 1.5,
       molaSaat: Bicim.sayiOku(_mola.text) ?? 1,
+      bankaTipi: _bankaTipi,
+      bankaTutar:
+          _bankaTipi == BankaTipi.ozel ? (Bicim.sayiOku(_banka.text) ?? 0) : 0,
+      hacizOrani: _bankaTipi == BankaTipi.yok ? 0 : _haciz,
+      raporTamOdenir: _raporTam,
+      sgkBrut: Bicim.sayiOku(_sgkBrut.text) ?? 0,
     ));
     if (mounted) setState(() => _kaydediliyor = false);
   }
@@ -76,10 +101,25 @@ class _ProfilFormuState extends State<ProfilFormu> {
 
   @override
   Widget build(BuildContext context) {
+    final renk = Theme.of(context).colorScheme;
     final ucret = Bicim.sayiOku(_ucret.text);
+    final asgari = AsgariUcret.yil(DateTime.now().year);
     const bosluk = SizedBox(height: 14);
-    final sayiKlavye = const TextInputType.numberWithOptions(decimal: true);
+    const sayiKlavye = TextInputType.numberWithOptions(decimal: true);
     final sayiFiltre = [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))];
+    final aciklamaStil = TextStyle(fontSize: 12, color: renk.onSurfaceVariant);
+
+    Widget baslik(String t) => Padding(
+          padding: const EdgeInsets.only(top: 22, bottom: 8),
+          child: Text(t, style: Theme.of(context).textTheme.titleSmall),
+        );
+
+    // Bankaya yatacak 30 günlük tutar ve elden kalan (bilgi amaçlı)
+    final bankaAylik = switch (_bankaTipi) {
+      BankaTipi.yok => 0.0,
+      BankaTipi.asgari => asgari.net,
+      BankaTipi.ozel => Bicim.sayiOku(_banka.text) ?? 0.0,
+    };
 
     return Form(
       key: _form,
@@ -117,34 +157,16 @@ class _ProfilFormuState extends State<ProfilFormu> {
             ),
           ),
           const SizedBox(height: 20),
-          Text('Ücretiniz', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          SegmentedButton<UcretTipi>(
-            segments: const [
-              ButtonSegment(
-                  value: UcretTipi.aylik,
-                  label: Text('Aylık Maaş'),
-                  icon: Icon(Icons.calendar_month)),
-              ButtonSegment(
-                  value: UcretTipi.gunluk,
-                  label: Text('Günlük Yevmiye'),
-                  icon: Icon(Icons.today)),
-            ],
-            selected: {_tip},
-            onSelectionChanged: (s) => setState(() => _tip = s.first),
-          ),
-          bosluk,
           TextFormField(
             controller: _ucret,
             keyboardType: sayiKlavye,
             inputFormatters: sayiFiltre,
             decoration: InputDecoration(
-              labelText:
-                  _tip == UcretTipi.aylik ? 'Aylık maaş (₺) *' : 'Günlük yevmiye (₺) *',
+              labelText: 'Aylık toplam maaşınız (₺) *',
               prefixIcon: const Icon(Icons.payments_outlined),
-              helperText: _tip == UcretTipi.aylik && ucret != null && ucret > 0
-                  ? 'Günlük karşılığı: ${Bicim.para(ucret / 30)}  (maaş ÷ 30)'
-                  : null,
+              helperText: ucret != null && ucret > 0
+                  ? 'Günlük karşılığı: ${Bicim.para(ucret / 30)}  (maaş ÷ 30) • banka + elden toplamı'
+                  : 'Bankaya yatan ve elden verilen toplam',
             ),
             validator: (v) {
               final d = Bicim.sayiOku(v ?? '');
@@ -152,7 +174,102 @@ class _ProfilFormuState extends State<ProfilFormu> {
               return null;
             },
           ),
+
+          // ------------------------------------------------------------------
+          baslik('Bankaya yatan maaş'),
+          SegmentedButton<BankaTipi>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: BankaTipi.yok, label: Text('Yok')),
+              ButtonSegment(value: BankaTipi.asgari, label: Text('Asgari')),
+              ButtonSegment(value: BankaTipi.ozel, label: Text('Anlaşılan')),
+            ],
+            selected: {_bankaTipi},
+            onSelectionChanged: (s) => setState(() => _bankaTipi = s.first),
+          ),
           const SizedBox(height: 8),
+          if (_bankaTipi == BankaTipi.yok)
+            Text('Maaşın tamamı elden ödenir.', style: aciklamaStil),
+          if (_bankaTipi == BankaTipi.asgari)
+            Text(
+              '${asgari.yil} net asgari ücret bankaya yatar: '
+              '${Bicim.para(asgari.net)} (30 gün). Eksik günlerde gün hesabıyla azalır.',
+              style: aciklamaStil,
+            ),
+          if (_bankaTipi == BankaTipi.ozel) ...[
+            const SizedBox(height: 4),
+            TextFormField(
+              controller: _banka,
+              keyboardType: sayiKlavye,
+              inputFormatters: sayiFiltre,
+              decoration: const InputDecoration(
+                labelText: 'Bankaya yatan (30 gün, net ₺) *',
+                prefixIcon: Icon(Icons.account_balance),
+                helperText: 'Firma ile anlaşılan, 30 gün çalışınca bankaya yatan tutar',
+              ),
+              validator: (v) {
+                if (_bankaTipi != BankaTipi.ozel) return null;
+                final d = Bicim.sayiOku(v ?? '');
+                if (d == null || d <= 0) return 'Bankaya yatan tutarı girin';
+                return null;
+              },
+            ),
+          ],
+          if (bankaAylik > 0 && ucret != null && ucret > 0) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: renk.secondaryContainer.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '30 gün tam çalışınca:  Banka ${Bicim.para(bankaAylik)}  •  '
+                'Elden ${Bicim.para(ucret - bankaAylik)}',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+
+          // ------------------------------------------------------------------
+          if (_bankaTipi != BankaTipi.yok) ...[
+            baslik('Haciz (icra) kesintisi'),
+            SegmentedButton<double>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: 0, label: Text('Yok')),
+                ButtonSegment(value: 0.25, label: Text('1/4')),
+                ButtonSegment(value: 0.10, label: Text('1/10')),
+              ],
+              selected: {_haciz},
+              onSelectionChanged: (s) => setState(() => _haciz = s.first),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _haciz == 0
+                  ? 'Maaş haczi yok.'
+                  : 'Bankaya yatan tutarın ${_haciz == 0.25 ? 'dörtte biri' : 'onda biri'} '
+                      'kesilip icraya gönderilir.',
+              style: aciklamaStil,
+            ),
+          ],
+
+          // ------------------------------------------------------------------
+          baslik('Raporlu günler'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _raporTam,
+            onChanged: (v) => setState(() => _raporTam = v),
+            title: const Text('Raporlu günlerde maaşım tam ödenir'),
+            subtitle: Text(
+              _raporTam
+                  ? 'SGK rapor parasını kendisi yatırır; aradaki farkı işveren maaşım üzerinden öder.'
+                  : 'Raporlu günler maaştan düşülür; o günler için sadece SGK öder.',
+              style: aciklamaStil,
+            ),
+          ),
+
+          const SizedBox(height: 4),
           // Gelişmiş ayarlar: çoğu kişi için varsayılanlar doğrudur
           InkWell(
             onTap: () => setState(() => _gelismis = !_gelismis),
@@ -161,14 +278,11 @@ class _ProfilFormuState extends State<ProfilFormu> {
               child: Row(children: [
                 Icon(_gelismis ? Icons.expand_less : Icons.expand_more),
                 const SizedBox(width: 6),
-                const Text('Mesai ayarları'),
+                const Text('Mesai ve SGK ayarları'),
                 const Spacer(),
                 if (!_gelismis)
-                  Text(
-                    '${_saat.text} saat • ×${_kat.text}',
-                    style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant),
-                  ),
+                  Text('${_saat.text} saat • ×${_kat.text}',
+                      style: TextStyle(color: renk.onSurfaceVariant)),
               ]),
             ),
           ),
@@ -208,14 +322,25 @@ class _ProfilFormuState extends State<ProfilFormu> {
               ),
               validator: _pozitif,
             ),
+            bosluk,
+            TextFormField(
+              controller: _sgkBrut,
+              keyboardType: sayiKlavye,
+              inputFormatters: sayiFiltre,
+              decoration: InputDecoration(
+                labelText: 'SGK\'ya bildirilen brüt maaş (30 gün)',
+                prefixIcon: const Icon(Icons.health_and_safety_outlined),
+                helperText:
+                    'Rapor parası hesabı için. Boş bırakılırsa brüt asgari ücret (${Bicim.para(asgari.brut)}) alınır.',
+                helperMaxLines: 2,
+              ),
+            ),
             const SizedBox(height: 6),
             Text(
               'Saatlik ücret = günlük ücret ÷ günlük normal saat. '
               'Mesai ücreti = mesai saati × saatlik ücret × katsayı. '
               'Yasal varsayılan: 7,5 saat ve × 1,5.',
-              style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant),
+              style: aciklamaStil,
             ),
           ],
           const SizedBox(height: 22),

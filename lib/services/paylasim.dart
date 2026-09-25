@@ -31,7 +31,21 @@ class Paylasim {
     );
   }
 
-  /// Cihaza kaydeder (Android: klasör seçimi, web: indirme)
+  /// Düz metin paylaşır (WhatsApp'a not göndermek için).
+  static Future<void> metinPaylas(BuildContext context, String metin,
+      {String? konu}) async {
+    final kutu = context.findRenderObject() as RenderBox?;
+    await SharePlus.instance.share(
+      ShareParams(
+        text: metin,
+        subject: konu,
+        sharePositionOrigin:
+            kutu == null ? null : kutu.localToGlobal(Offset.zero) & kutu.size,
+      ),
+    );
+  }
+
+  /// Cihaza kaydeder (Android: paylaşım menüsü, web: indirme)
   static Future<bool> kaydet(Uint8List veri, String dosyaAdi, String mime) =>
       platform.cihazaKaydet(veri, dosyaAdi, mime);
 

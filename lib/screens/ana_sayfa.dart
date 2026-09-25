@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 
 import 'ayarlar_sayfasi.dart';
 import 'hareketler_sayfasi.dart';
+import 'notlar_sayfasi.dart';
 import 'rapor_sayfasi.dart';
 import 'takvim_sayfasi.dart';
 
-/// Alt gezinme çubuklu ana iskelet (4 sekme).
+/// Alt gezinme çubuklu ana iskelet (5 sekme).
 class AnaSayfa extends StatefulWidget {
   const AnaSayfa({super.key});
 
@@ -19,6 +20,7 @@ class _AnaSayfaState extends State<AnaSayfa> {
   static const _sayfalar = <Widget>[
     TakvimSayfasi(),
     HareketlerSayfasi(),
+    NotlarSayfasi(),
     RaporSayfasi(),
     AyarlarSayfasi(),
   ];
@@ -40,6 +42,11 @@ class _AnaSayfaState extends State<AnaSayfa> {
             icon: Icon(Icons.payments_outlined),
             selectedIcon: Icon(Icons.payments),
             label: 'Avans',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.sticky_note_2_outlined),
+            selectedIcon: Icon(Icons.sticky_note_2),
+            label: 'Notlar',
           ),
           NavigationDestination(
             icon: Icon(Icons.receipt_long_outlined),

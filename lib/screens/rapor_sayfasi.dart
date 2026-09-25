@@ -28,9 +28,18 @@ class RaporSayfasi extends StatelessWidget {
           final kayitlar = depo.ayKayitlari(ay);
           final hareketler = depo.ayHareketleri(ay);
           final ozet = Hesaplama.hesapla(
-              profil: profil, ay: ay, kayitlar: kayitlar, hareketler: hareketler);
+              profil: profil,
+              ay: ay,
+              kayitlar: kayitlar,
+              hareketler: hareketler,
+              oncekiAyKayitlari:
+                  depo.ayKayitlari(DateTime(ay.year, ay.month - 1)));
           final uretici = RaporUretici(
-              profil: profil, ozet: ozet, kayitlar: kayitlar, hareketler: hareketler);
+              profil: profil,
+              ozet: ozet,
+              kayitlar: kayitlar,
+              hareketler: hareketler,
+              notlar: depo.ayNotlari(ay));
           final renk = Theme.of(context).colorScheme;
 
           return ListView(
@@ -44,7 +53,7 @@ class RaporSayfasi extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(18),
                   child: Column(children: [
-                    Text('Kalan alacağım (net)',
+                    Text('Kalan alacağım',
                         style: TextStyle(color: renk.onPrimaryContainer)),
                     const SizedBox(height: 4),
                     Text(Bicim.para(ozet.net),
@@ -54,10 +63,18 @@ class RaporSayfasi extends StatelessWidget {
                             color: renk.onPrimaryContainer)),
                     const SizedBox(height: 4),
                     Text(
-                      'Brüt ${Bicim.para(ozet.brut)}  •  Avans ${Bicim.para(ozet.avans)}',
+                      ozet.bankaVar
+                          ? 'Bankaya ${Bicim.para(ozet.bankayaYatan)}  •  Elden ${Bicim.para(ozet.elden)}'
+                          : 'Hepsi elden  •  Avans ${Bicim.para(ozet.avans)}',
                       style: TextStyle(
                           fontSize: 12.5, color: renk.onPrimaryContainer),
                     ),
+                    if (ozet.bankaVar && ozet.hacizOrani > 0)
+                      Text(
+                        'Haciz (${ozet.hacizEtiketi}): ${Bicim.para(ozet.haciz)} icraya',
+                        style: TextStyle(
+                            fontSize: 12, color: renk.onPrimaryContainer),
+                      ),
                   ]),
                 ),
               ),
@@ -146,8 +163,47 @@ class RaporSayfasi extends StatelessWidget {
                       const SizedBox(height: 8),
                       for (final s in uretici.hesapSatirlari)
                         _satir(context, s.$1, s.$2,
-                            vurgulu: s.$1.startsWith('BRÜT') ||
-                                s.$1.startsWith('KALAN')),
+                            vurgulu: RaporUretici.vurgulu(s.$1)),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ---- Banka / elden dağılımı
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Ödeme Dağılımı',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                      const SizedBox(height: 8),
+                      for (final s in uretici.odemeSatirlari)
+                        _satir(context, s.$1, s.$2,
+                            vurgulu: RaporUretici.vurgulu(s.$1)),
+                      if (!ozet.bankaVar)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'Bankaya yatan maaş varsa Profil > Banka ve Kesintiler bölümünden ayarlayın.',
+                            style: TextStyle(
+                                fontSize: 12, color: renk.onSurfaceVariant),
+                          ),
+                        ),
+                      if (ozet.raporGunu > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            ozet.raporTamOdenir
+                                ? 'Raporlu ${ozet.raporGunu} günün maaşı tam sayıldı. SGK rapor parasını '
+                                    'kendisi yatırır; işveren sadece aradaki farkı öder. Rapor parası tahminidir, '
+                                    'kesin tutar SGK hesabına göre değişebilir.'
+                                : 'Raporlu ${ozet.raporGunu} gün maaştan düşüldü; o günler için sadece SGK öder (tahmini).',
+                            style: TextStyle(
+                                fontSize: 12, color: renk.onSurfaceVariant),
+                          ),
+                        ),
                     ],
                   ),
                 ),

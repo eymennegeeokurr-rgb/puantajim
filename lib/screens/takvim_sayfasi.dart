@@ -212,6 +212,7 @@ class _TakvimIzgarasi extends StatelessWidget {
 
   Widget _hucre(BuildContext context, DateTime t, DateTime bugun, ColorScheme renk) {
     final k = Depo.instance.gun(t);
+    final notVar = Depo.instance.notVar(t);
     final bugunMu = t == bugun;
     final gelecek = t.isAfter(bugun);
     final pazar = t.weekday == DateTime.sunday;
@@ -229,7 +230,17 @@ class _TakvimIzgarasi extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
           border: bugunMu ? Border.all(color: renk.primary, width: 2) : null,
         ),
-        child: Column(
+        child: Stack(
+          children: [
+            // Not yazılmış günlerde sağ üstte küçük not işareti
+            if (notVar)
+              const Positioned(
+                top: 3,
+                right: 3,
+                child: Icon(Icons.sticky_note_2, size: 10, color: Color(0xFFF9A825)),
+              ),
+            Center(
+              child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
@@ -259,6 +270,9 @@ class _TakvimIzgarasi extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                     color: Color(0xFF6A1B9A)),
               ),
+          ],
+              ),
+            ),
           ],
         ),
       ),
@@ -292,6 +306,11 @@ class _Lejant extends StatelessWidget {
                     fontWeight: FontWeight.w800, color: Color(0xFF6A1B9A))),
             const TextSpan(text: 'Mesai saati'),
           ]), style: TextStyle(fontSize: 11, color: renk.onSurfaceVariant)),
+          Text.rich(const TextSpan(children: [
+            WidgetSpan(
+                child: Icon(Icons.sticky_note_2, size: 11, color: Color(0xFFF9A825))),
+            TextSpan(text: ' Not var'),
+          ]), style: TextStyle(fontSize: 11, color: renk.onSurfaceVariant)),
         ],
       ),
     );
@@ -317,6 +336,7 @@ class _AyOzetiKarti extends StatelessWidget {
       ay: ay,
       kayitlar: depo.ayKayitlari(ay),
       hareketler: depo.ayHareketleri(ay),
+      oncekiAyKayitlari: depo.ayKayitlari(DateTime(ay.year, ay.month - 1)),
     );
 
     Widget kutu(String baslik, String deger) => Expanded(
@@ -335,7 +355,7 @@ class _AyOzetiKarti extends StatelessWidget {
         child: Column(
           children: [
             Row(children: [
-              kutu('Geldiğim gün', Bicim.sayi(o.calisilanGun)),
+              kutu('Ödenecek gün', '${Bicim.sayi(o.odenenGun)}/30'),
               kutu('Mesai (saat)', Bicim.sayi(o.mesaiSaat)),
               kutu('Avans', Bicim.para(o.avans)),
             ]),
@@ -351,6 +371,21 @@ class _AyOzetiKarti extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                       color: renk.primary)),
             ]),
+            if (o.bankaVar) ...[
+              const SizedBox(height: 6),
+              Row(children: [
+                Icon(Icons.account_balance, size: 15, color: renk.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Banka ${Bicim.para(o.bankayaYatan)}'
+                    '${o.hacizOrani > 0 ? ' (haciz ${Bicim.para(o.haciz)})' : ''}'
+                    '  •  Elden ${Bicim.para(o.elden)}',
+                    style: TextStyle(fontSize: 12.5, color: renk.onSurfaceVariant),
+                  ),
+                ),
+              ]),
+            ],
             if (o.isaretsizGun > 0) ...[
               const SizedBox(height: 8),
               Row(children: [
