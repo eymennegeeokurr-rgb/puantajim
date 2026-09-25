@@ -43,7 +43,7 @@ class AyarlarSayfasi extends StatelessWidget {
     if (onay != true) return;
 
     final sonuc =
-        await FilePicker.platform.pickFiles(type: FileType.any, withData: true);
+        await FilePicker.pickFiles(type: FileType.any, withData: true);
     final veri = sonuc?.files.single.bytes;
     if (veri == null) return;
     try {
