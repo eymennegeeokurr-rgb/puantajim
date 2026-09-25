@@ -4,8 +4,8 @@ import 'package:file_picker/file_picker.dart';
 
 /// Dosyayı telefonda kullanıcının seçtiği klasöre kaydeder (İndirilenler vb.).
 Future<bool> cihazaKaydet(Uint8List veri, String dosyaAdi, String mime) async {
-  final yol = await FilePicker.platform.saveFile(
-    dialogTitle: 'Dosyayı kaydet',
+  // file_picker 11+: statik metotlar (FilePicker.platform kaldırıldı)
+  final yol = await FilePicker.saveFile(
     fileName: dosyaAdi,
     bytes: veri,
   );
