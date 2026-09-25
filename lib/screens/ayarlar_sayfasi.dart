@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../data/depo.dart';
 import '../services/bicim.dart';
+import '../services/guncelleme.dart';
 import '../services/paylasim.dart';
 import '../widgets/profil_formu.dart';
 
@@ -192,9 +193,31 @@ class AyarlarSayfasi extends StatelessWidget {
               onTap: () => _tumunuSil(context),
             ),
           ),
+          if (Guncelleme.etkin) ...[
+            baslik('Uygulama'),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.system_update),
+                title: const Text('Güncellemeleri denetle'),
+                subtitle: Text('Yüklü sürüm: ${Guncelleme.surumAdi}'),
+                onTap: () async {
+                  _mesaj(context, 'Denetleniyor...');
+                  final yeni = await Guncelleme.kontrolEt();
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  if (yeni != null) {
+                    await Guncelleme.pencereGoster(context, yeni);
+                  } else {
+                    _mesaj(context,
+                        'En güncel sürümü kullanıyorsunuz (veya internet yok)');
+                  }
+                },
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           Center(
-            child: Text('Puantajım v1.0.0',
+            child: Text('Puantajım ${Guncelleme.surumAdi}',
                 style: TextStyle(fontSize: 12, color: renk.outline)),
           ),
         ],

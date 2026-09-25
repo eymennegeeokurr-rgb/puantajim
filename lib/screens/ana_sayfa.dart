@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/guncelleme.dart';
+
 import 'ayarlar_sayfasi.dart';
 import 'hareketler_sayfasi.dart';
 import 'notlar_sayfasi.dart';
@@ -16,6 +18,18 @@ class AnaSayfa extends StatefulWidget {
 
 class _AnaSayfaState extends State<AnaSayfa> {
   int _secili = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Açılışta (internet varsa) yeni sürüm kontrolü - sadece Android APK
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final yeni = await Guncelleme.kontrolEt();
+      if (yeni != null && mounted) {
+        await Guncelleme.pencereGoster(context, yeni);
+      }
+    });
+  }
 
   static const _sayfalar = <Widget>[
     TakvimSayfasi(),

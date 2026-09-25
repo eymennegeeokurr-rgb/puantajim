@@ -44,3 +44,6 @@ void kaliciDepolamaIste() {
     web.window.navigator.storage.persist();
   } catch (_) {}
 }
+
+/// Web uygulaması kendiliğinden güncellenir; güncelleme kontrolü gerekmez.
+Future<String?> metinGetir(String url) async => null;

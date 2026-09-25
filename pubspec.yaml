@@ -23,6 +23,9 @@ dependencies:
   # Yedek dosyası seçmek için (Flutter ekibinin resmi paketi)
   file_selector: ^1.0.3
 
+  # Yeni sürüm çıkınca APK'yı tarayıcıda açmak için (Flutter ekibinin resmi paketi)
+  url_launcher: ^6.3.1
+
   # Rapor üretimi (saf Dart - hem Android'de hem web'de çalışır)
   excel: ^4.0.6
   pdf: ^3.11.1
