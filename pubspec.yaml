@@ -20,7 +20,8 @@ dependencies:
 
   # PDF / Excel / yedek dosyasını paylaşma ve kaydetme
   share_plus: '>=11.0.0 <14.0.0'
-  file_picker: ^11.0.0
+  # Yedek dosyası seçmek için (Flutter ekibinin resmi paketi)
+  file_selector: ^1.0.3
 
   # Rapor üretimi (saf Dart - hem Android'de hem web'de çalışır)
   excel: ^4.0.6
