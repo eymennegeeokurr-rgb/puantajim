@@ -1,0 +1,118 @@
+rules_version = '2';
+
+// =============================================================================
+// PUANTAJIM - Firestore güvenlik kuralları
+//
+// Bu kurallar Firebase SUNUCUSUNDA çalışır. Uygulama kodu değiştirilse bile
+// aşılamaz. Özet:
+//   - Herkes sadece KENDİ verisini okuyup yazabilir.
+//   - Yönetici, sadece ONAY VEREN elemanın verisini OKUYABİLİR (yazamaz).
+//   - Yöneticiler listesi sadece Firebase konsolundan değiştirilebilir.
+//   - Telefon numarası hiçbir yerde tutulmaz.
+//
+// Firebase konsolu > Firestore Database > Kurallar (Rules) sekmesine yapıştırıp
+// "Yayınla" (Publish) deyin.
+// =============================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function girisli() {
+      return request.auth != null;
+    }
+
+    function ben(uid) {
+      return girisli() && request.auth.uid == uid;
+    }
+
+    function yonetici() {
+      return girisli() &&
+        exists(/databases/$(database)/documents/yoneticiler/$(request.auth.uid));
+    }
+
+    // Yönetici, bu elemanın onayladığı bir isteğe sahip mi?
+    function onayliYonetici(calisanUid) {
+      return yonetici() &&
+        get(/databases/$(database)/documents/istekler/$(calisanUid + '_' + request.auth.uid)).data.durum == 'onaylandi';
+    }
+
+    // ---- Yöneticiler: SADECE Firebase konsolundan eklenir
+    match /yoneticiler/{uid} {
+      allow get: if ben(uid);
+      allow list, write: if false;
+    }
+
+    // ---- Kullanıcı kodu -> kişi (kodu bilen yönetici adı ve kişiyi bulur)
+    match /kodlar/{kod} {
+      allow get: if girisli();
+      allow list: if false;
+      // "create" sadece kod boştaysa çalışır; dolu koda yazmak "update" sayılır
+      allow create: if girisli()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'adSoyad']);
+      allow update: if girisli()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if girisli() && resource.data.uid == request.auth.uid;
+    }
+
+    // ---- Telefon özeti -> şifre sıfırlama e-postası (sadece e-posta verenler)
+    // Belge adı, telefon numarasının geri çevrilemez özetidir.
+    match /telefonlar/{ozet} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if girisli() && request.resource.data.uid == request.auth.uid;
+      allow delete: if girisli() && resource.data.uid == request.auth.uid;
+    }
+
+    // ---- Kullanıcı ve verisi
+    match /kullanicilar/{uid} {
+      allow read: if ben(uid) || onayliYonetici(uid);
+      allow write: if ben(uid);
+
+      match /veri/{belge} {
+        allow read: if ben(uid) || onayliYonetici(uid);
+        allow write: if ben(uid);
+      }
+    }
+
+    // ---- Takip istekleri (yönetici -> eleman). Belge adı: calisanUid_yoneticiUid
+    match /istekler/{id} {
+      allow get: if girisli() && (
+        resource == null ||
+        resource.data.calisanUid == request.auth.uid ||
+        resource.data.yoneticiUid == request.auth.uid);
+
+      allow list: if girisli() && (
+        resource.data.calisanUid == request.auth.uid ||
+        resource.data.yoneticiUid == request.auth.uid);
+
+      // Sadece yönetici, kendi adına ve "bekliyor" durumunda istek açabilir
+      allow create: if yonetici()
+        && request.resource.data.yoneticiUid == request.auth.uid
+        && id == request.resource.data.calisanUid + '_' + request.auth.uid
+        && request.resource.data.durum == 'bekliyor';
+
+      // Eleman onaylar / reddeder (sadece durum ve cevap tarihi değişebilir)
+      // veya yönetici reddedilmiş isteği tekrar "bekliyor" yapar
+      allow update: if girisli() && (
+        (resource.data.calisanUid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['durum', 'cevapTarihi'])
+          && request.resource.data.durum in ['onaylandi', 'reddedildi'])
+        ||
+        (yonetici()
+          && resource.data.yoneticiUid == request.auth.uid
+          && request.resource.data.yoneticiUid == request.auth.uid
+          && request.resource.data.calisanUid == resource.data.calisanUid
+          && request.resource.data.durum == 'bekliyor'
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['durum', 'tarih', 'yoneticiAd', 'calisanAd', 'cevapTarihi']))
+      );
+
+      // Eleman izni kaldırır veya yönetici listeden çıkarır
+      allow delete: if girisli() && (
+        resource.data.calisanUid == request.auth.uid ||
+        resource.data.yoneticiUid == request.auth.uid);
+    }
+  }
+}

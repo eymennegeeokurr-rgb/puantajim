@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 import '../data/depo.dart';
 import '../models/gun_kaydi.dart';
 import '../services/bicim.dart';
+import '../services/bulut.dart';
 import '../services/hesaplama.dart';
 import '../widgets/ay_gezgini.dart';
+import '../widgets/hesabim_karti.dart';
 import '../widgets/kurulum_ipucu.dart';
+import 'ekip_sayfasi.dart';
 import 'gun_duzenle_sayfasi.dart';
 
 /// Ana ekran: bugün hızlı giriş + aylık takvim + ay özeti.
@@ -30,6 +33,23 @@ class TakvimSayfasi extends StatelessWidget {
             ],
           ),
         ),
+        actions: [
+          // Yönetici hesabıysa "Ekibim" paneli
+          ValueListenableBuilder<bool>(
+            valueListenable: Bulut.yonetici,
+            builder: (context, yon, _) => yon
+                ? Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilledButton.tonalIcon(
+                      onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const EkipSayfasi())),
+                      icon: const Icon(Icons.groups),
+                      label: const Text('Ekibim'),
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
       ),
       body: ListenableBuilder(
         listenable: Listenable.merge([depo, depo.seciliAy]),
@@ -41,6 +61,7 @@ class TakvimSayfasi extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 24),
             children: [
               const KurulumIpucu(),
+              if (Bulut.oturum.value != null) const OnayBandi(),
               const AyGezgini(),
               if (buAy) _BugunKarti(tarih: Bicim.sadeceGun(simdi)),
               _TakvimIzgarasi(ay: ay),

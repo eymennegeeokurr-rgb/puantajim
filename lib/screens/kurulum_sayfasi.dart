@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../data/depo.dart';
+import '../models/profil.dart';
+import '../services/bulut.dart';
 import '../widgets/profil_formu.dart';
 
 /// İlk açılış: kullanıcı kendi bilgilerini girer.
@@ -32,12 +34,16 @@ class KurulumSayfasi extends StatelessWidget {
                 Text(
                   'Her gün geldiğinizi, mesainizi ve avansınızı yazın; '
                   'ay sonunda hakedişinizi PDF veya Excel olarak gönderin.\n'
-                  'Bilgileriniz sadece bu telefonda saklanır.',
+                  '${Bulut.oturum.value == null ? 'Bilgileriniz sadece bu telefonda saklanır.' : 'Kayıtlarınız hesabınıza yedeklenir; telefon değişse de kaybolmaz.'}',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: renk.onSurfaceVariant),
                 ),
                 const SizedBox(height: 28),
                 ProfilFormu(
+                  // Girişli kullanımda kayıttaki ad soyad hazır gelir
+                  baslangic: Bulut.oturum.value == null
+                      ? null
+                      : Profil(adSoyad: Bulut.oturum.value!.adSoyad, ucret: 0),
                   butonYazisi: 'Başla',
                   kaydet: Depo.instance.profilKaydet,
                 ),

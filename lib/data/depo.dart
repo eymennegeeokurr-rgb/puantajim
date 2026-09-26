@@ -7,15 +7,14 @@ import '../models/gun_kaydi.dart';
 import '../models/not_kaydi.dart';
 import '../models/para_hareketi.dart';
 import '../models/profil.dart';
+import '../models/veri_paketi.dart';
 import '../services/bicim.dart';
 
-/// Tüm verilerin tutulduğu yer (tek kullanıcı, tamamen telefonda).
+/// Tüm verilerin tutulduğu yer.
 ///
-/// Veriler JSON olarak SharedPreferences'ta saklanır:
-///  - Android: uygulamanın özel hafızası
-///  - iPhone (ana ekrana eklenen web uygulaması): tarayıcının yerel hafızası
-///
-/// Bir kişinin yıllarca tuttuğu puantaj bile birkaç yüz KB'ı geçmez.
+/// Veriler önce TELEFONA yazılır (SharedPreferences, JSON) - internetsiz çalışır.
+/// Bulut açıksa her değişiklikten sonra [kayitSonrasi] tetiklenir ve veri
+/// internet olduğunda Firebase'e gönderilir (bkz. services/bulut.dart).
 class Depo extends ChangeNotifier {
   Depo._();
   static final Depo instance = Depo._();
@@ -25,14 +24,21 @@ class Depo extends ChangeNotifier {
   static const _kHareketler = 'hareketler';
   static const _kNotlar = 'notlar';
   static const _kTema = 'tema';
-  static const yedekSurumu = 1;
+  static const _kYerelZaman = 'yerelZaman';
 
   late SharedPreferences _prefs;
+  SharedPreferences get prefs => _prefs;
 
   Profil? _profil;
   final Map<String, GunKaydi> _gunler = {};
   final List<ParaHareketi> _hareketler = [];
   final List<NotKaydi> _notlar = [];
+
+  /// Son yerel değişikliğin zamanı (ms). Bulutla karşılaştırmada kullanılır.
+  int get yerelZaman => _prefs.getInt(_kYerelZaman) ?? 0;
+
+  /// Her kayıt değişikliğinden sonra çağrılır (bulut senkronu bağlanır)
+  VoidCallback? kayitSonrasi;
 
   /// Tema (açık / koyu / sistem)
   final temaModu = ValueNotifier<ThemeMode>(ThemeMode.system);
@@ -102,6 +108,13 @@ class Depo extends ChangeNotifier {
   Future<void> _notlariYaz() => _prefs.setString(
       _kNotlar, jsonEncode(_notlar.map((n) => n.toJson()).toList()));
 
+  /// Değişiklik oldu: zamanı işaretle, ekranları yenile, buluta haber ver
+  Future<void> _degisti() async {
+    await _prefs.setInt(_kYerelZaman, DateTime.now().millisecondsSinceEpoch);
+    notifyListeners();
+    kayitSonrasi?.call();
+  }
+
   static String _ayOnEki(DateTime ay) =>
       '${ay.year.toString().padLeft(4, '0')}-${ay.month.toString().padLeft(2, '0')}-';
 
@@ -113,7 +126,7 @@ class Depo extends ChangeNotifier {
     _profil = p;
     await _prefs.setString(_kProfil, jsonEncode(p.toJson()));
     profilVar.value = true;
-    notifyListeners();
+    await _degisti();
   }
 
   Future<void> temaAyarla(ThemeMode mod) async {
@@ -137,14 +150,14 @@ class Depo extends ChangeNotifier {
 
   Future<void> gunKaydet(GunKaydi k) async {
     _gunler[k.tarih] = k;
-    notifyListeners();
     await _gunleriYaz();
+    await _degisti();
   }
 
   Future<void> gunSil(String tarih) async {
     _gunler.remove(tarih);
-    notifyListeners();
     await _gunleriYaz();
+    await _degisti();
   }
 
   // ---------------------------------------------------------------------------
@@ -166,14 +179,14 @@ class Depo extends ChangeNotifier {
     } else {
       _hareketler.add(h);
     }
-    notifyListeners();
     await _hareketleriYaz();
+    await _degisti();
   }
 
   Future<void> hareketSil(String id) async {
     _hareketler.removeWhere((h) => h.id == id);
-    notifyListeners();
     await _hareketleriYaz();
+    await _degisti();
   }
 
   // ---------------------------------------------------------------------------
@@ -205,71 +218,80 @@ class Depo extends ChangeNotifier {
     } else {
       _notlar.add(n);
     }
-    notifyListeners();
     await _notlariYaz();
+    await _degisti();
   }
 
   Future<void> notSil(String id) async {
     _notlar.removeWhere((n) => n.id == id);
-    notifyListeners();
     await _notlariYaz();
+    await _degisti();
   }
 
   // ---------------------------------------------------------------------------
-  // YEDEKLEME
+  // TÜM VERİ (yedek + bulut)
   // ---------------------------------------------------------------------------
 
-  /// Tüm verileri tek JSON metni olarak verir
-  String yedekOlustur() => const JsonEncoder.withIndent(' ').convert({
-        'uygulama': 'puantajim',
-        'surum': yedekSurumu,
-        'tarih': DateTime.now().toIso8601String(),
-        'profil': _profil?.toJson(),
-        'gunler': _gunler.values.map((g) => g.toJson()).toList(),
-        'hareketler': _hareketler.map((h) => h.toJson()).toList(),
-        'notlar': _notlar.map((n) => n.toJson()).toList(),
-      });
+  VeriPaketi get paket => VeriPaketi(
+        profil: _profil,
+        gunler: _gunler.values.toList(),
+        hareketler: List.of(_hareketler),
+        notlar: List.of(_notlar),
+      );
+
+  /// Veri hiç girilmemiş mi? (yeni kurulum)
+  bool get bos => paket.bos;
+
+  /// Tüm verileri tek JSON metni olarak verir (yedek dosyası)
+  String yedekOlustur() => paket.metin(girintili: true);
+
+  Future<void> _paketiYaz(VeriPaketi v) async {
+    if (v.profil != null) {
+      await _prefs.setString(_kProfil, jsonEncode(v.profil!.toJson()));
+    } else {
+      await _prefs.remove(_kProfil);
+    }
+    await _prefs.setString(
+        _kGunler, jsonEncode({for (final g in v.gunler) g.tarih: g.toJson()}));
+    await _prefs.setString(
+        _kHareketler, jsonEncode(v.hareketler.map((h) => h.toJson()).toList()));
+    await _prefs.setString(
+        _kNotlar, jsonEncode(v.notlar.map((n) => n.toJson()).toList()));
+    _verileriOku();
+  }
 
   /// Yedekten geri yükler. Hatalı dosyada istisna fırlatır, mevcut veri bozulmaz.
   Future<void> yedektenYukle(String metin) async {
-    final j = jsonDecode(metin);
-    if (j is! Map<String, dynamic> || j['uygulama'] != 'puantajim') {
-      throw const FormatException('Bu dosya bir Puantajım yedeği değil');
-    }
-    // Önce tamamen ayrıştır, hata yoksa yaz
-    final profil = j['profil'] == null
-        ? null
-        : Profil.fromJson(j['profil'] as Map<String, dynamic>);
-    final gunler = (j['gunler'] as List<dynamic>? ?? [])
-        .map((e) => GunKaydi.fromJson(e as Map<String, dynamic>))
-        .toList();
-    final hareketler = (j['hareketler'] as List<dynamic>? ?? [])
-        .map((e) => ParaHareketi.fromJson(e as Map<String, dynamic>))
-        .toList();
-    final notlar = (j['notlar'] as List<dynamic>? ?? [])
-        .map((e) => NotKaydi.fromJson(e as Map<String, dynamic>))
-        .toList();
+    final v = VeriPaketi.ayristir(metin); // önce tamamen ayrıştır
+    await _paketiYaz(VeriPaketi(
+      profil: v.profil ?? _profil, // yedekte profil yoksa mevcut kalsın
+      gunler: v.gunler,
+      hareketler: v.hareketler,
+      notlar: v.notlar,
+    ));
+    await _degisti();
+  }
 
-    if (profil != null) {
-      await _prefs.setString(_kProfil, jsonEncode(profil.toJson()));
-    }
-    await _prefs.setString(_kGunler,
-        jsonEncode({for (final g in gunler) g.tarih: g.toJson()}));
-    await _prefs.setString(_kHareketler,
-        jsonEncode(hareketler.map((h) => h.toJson()).toList()));
-    await _prefs.setString(
-        _kNotlar, jsonEncode(notlar.map((n) => n.toJson()).toList()));
-    _verileriOku();
+  /// Buluttan gelen veriyi uygular (bulut daha yeniyse). Buluta geri göndermez.
+  Future<void> buluttanUygula(String metin, int zaman) async {
+    final v = VeriPaketi.ayristir(metin);
+    await _paketiYaz(v);
+    await _prefs.setInt(_kYerelZaman, zaman);
     notifyListeners();
   }
 
   /// Her şeyi siler (profil dahil) - kurulum ekranına döner
-  Future<void> tumunuSil() async {
+  Future<void> tumunuSil({bool bulutaBildir = true}) async {
     await _prefs.remove(_kProfil);
     await _prefs.remove(_kGunler);
     await _prefs.remove(_kHareketler);
     await _prefs.remove(_kNotlar);
     _verileriOku();
-    notifyListeners();
+    if (bulutaBildir) {
+      await _degisti();
+    } else {
+      await _prefs.remove(_kYerelZaman);
+      notifyListeners();
+    }
   }
 }

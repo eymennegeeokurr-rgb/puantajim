@@ -18,6 +18,14 @@ Her çalışan kendi telefonuna kurar, **kendi** puantajını tutar:
 
 ---
 
+## 0. Hesap, Bulut ve Yönetici Paneli (isteğe bağlı)
+
+`lib/firebase_ayar.dart` doldurulursa uygulama **girişli** çalışır (kurulum: **FIREBASE_KURULUM.md**):
+- Kayıt: ad soyad + cep telefonu + şifre + KVKK onayı. **Telefon numarası saklanmaz**, sadece geri çevrilemez özeti kullanılır.
+- Veriler önce telefona yazılır (internetsiz çalışır), internet gelince buluta eşitlenir. Telefon değişse bile giriş yapınca kayıtlar geri gelir.
+- Her kullanıcının bir **kodu** vardır (`PJ-XXXX-XXXX`). Yönetici kodu girer → elemana onay isteği gider → eleman onaylarsa yönetici puantajını **sadece görüntüler** (notlar dahil). Eleman izni istediği an kaldırabilir.
+- Güvenlik `firestore.rules` ile Firebase sunucusunda sağlanır; kod/APK herkese açık olsa da başkasının verisine erişilemez.
+
 ## 1. Hesap Kuralları (aylıkçı, her ay 30 gün)
 
 | Kalem | Hesap |

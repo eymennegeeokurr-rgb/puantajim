@@ -5,16 +5,20 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'data/depo.dart';
 import 'platform/platform.dart' as platform;
 import 'screens/ana_sayfa.dart';
+import 'screens/giris_sayfasi.dart';
 import 'screens/kurulum_sayfasi.dart';
+import 'services/bulut.dart';
 import 'tema.dart';
 
 /// Puantajım — kişisel puantaj, mesai, avans ve hakediş defteri.
-/// Tamamen çevrimdışı çalışır; veriler sadece bu cihazda tutulur.
+/// İnternetsiz çalışır; Firebase ayarlıysa girişli olur ve veriler internet
+/// olduğunda buluta eşitlenir (yönetici paneli için).
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('tr_TR');
   await Depo.instance.yukle();
   platform.kaliciDepolamaIste();
+  await Bulut.baslat();
   runApp(const PuantajimUygulamasi());
 }
 
@@ -39,11 +43,17 @@ class PuantajimUygulamasi extends StatelessWidget {
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
         ],
-        // İlk açılışta profil yoksa kurulum ekranı gösterilir
-        home: ValueListenableBuilder<bool>(
-          valueListenable: depo.profilVar,
-          builder: (_, kurulu, __) =>
-              kurulu ? const AnaSayfa() : const KurulumSayfasi(),
+        // Sıra: (Firebase açıksa) giriş -> profil kurulumu -> ana sayfa
+        home: ListenableBuilder(
+          listenable: Listenable.merge([depo.profilVar, Bulut.oturum]),
+          builder: (_, __) {
+            if (Bulut.aktif && Bulut.oturum.value == null) {
+              return const GirisSayfasi();
+            }
+            return depo.profilVar.value
+                ? const AnaSayfa()
+                : const KurulumSayfasi();
+          },
         ),
       ),
     );

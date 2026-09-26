@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/bulut.dart';
 import '../services/guncelleme.dart';
 
 import 'ayarlar_sayfasi.dart';
@@ -16,12 +17,13 @@ class AnaSayfa extends StatefulWidget {
   State<AnaSayfa> createState() => _AnaSayfaState();
 }
 
-class _AnaSayfaState extends State<AnaSayfa> {
+class _AnaSayfaState extends State<AnaSayfa> with WidgetsBindingObserver {
   int _secili = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Açılışta (internet varsa) yeni sürüm kontrolü - sadece Android APK
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final yeni = await Guncelleme.kontrolEt();
@@ -29,6 +31,18 @@ class _AnaSayfaState extends State<AnaSayfa> {
         await Guncelleme.pencereGoster(context, yeni);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Uygulama arka plandan dönünce buluttaki son durumu al / bekleyenleri gönder
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) Bulut.senkronla();
   }
 
   static const _sayfalar = <Widget>[

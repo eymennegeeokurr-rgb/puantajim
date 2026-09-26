@@ -1,5 +1,5 @@
 name: puantajim
-description: Puantajım - Kişisel puantaj, mesai, avans ve hakediş defteri. İnternetsiz çalışır.
+description: Puantajım - Kişisel puantaj, mesai, avans ve hakediş defteri. İnternetsiz çalışır, bulutla eşitlenir.
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -25,6 +25,13 @@ dependencies:
 
   # Yeni sürüm çıkınca APK'yı tarayıcıda açmak için (Flutter ekibinin resmi paketi)
   url_launcher: ^6.3.1
+
+  # Bulut: giriş, veri eşitleme, yönetici paneli (Firebase)
+  firebase_core: '>=3.6.0 <6.0.0'
+  firebase_auth: '>=5.3.0 <8.0.0'
+  cloud_firestore: '>=5.4.0 <8.0.0'
+  # Telefon numarasının geri çevrilemez özeti (numara saklanmaz)
+  crypto: ^3.0.3
 
   # Rapor üretimi (saf Dart - hem Android'de hem web'de çalışır)
   excel: ^4.0.6

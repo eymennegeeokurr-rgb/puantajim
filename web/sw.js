@@ -42,6 +42,25 @@ self.addEventListener('fetch', (olay) => {
   const istek = olay.request;
   if (istek.method !== 'GET') return;
   const url = new URL(istek.url);
+
+  // Firebase kütüphane dosyaları (gstatic): internetsiz açılış için önbelleğe al
+  if (url.origin === 'https://www.gstatic.com' && url.pathname.startsWith('/firebasejs/')) {
+    olay.respondWith((async () => {
+      const onbellek = await caches.open(ONBELLEK);
+      const kayitli = await onbellek.match(istek);
+      if (kayitli) return kayitli;
+      try {
+        const y = await fetch(istek);
+        if (y.ok) onbellek.put(istek, y.clone());
+        return y;
+      } catch (e) {
+        return new Response('', { status: 504 });
+      }
+    })());
+    return;
+  }
+
+  // Diğer dış adresler (Firebase sunucuları vb.) önbelleğe alınmaz
   if (url.origin !== self.location.origin) return;
 
   olay.respondWith((async () => {

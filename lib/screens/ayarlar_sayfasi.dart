@@ -8,6 +8,8 @@ import '../data/depo.dart';
 import '../services/bicim.dart';
 import '../services/guncelleme.dart';
 import '../services/paylasim.dart';
+import '../services/bulut.dart';
+import '../widgets/hesabim_karti.dart';
 import '../widgets/profil_formu.dart';
 
 /// Profil bilgileri, tema, yedekleme.
@@ -61,8 +63,9 @@ class AyarlarSayfasi extends StatelessWidget {
       builder: (ctx) => AlertDialog(
         icon: const Icon(Icons.delete_forever),
         title: const Text('Tüm veriler silinsin mi?'),
-        content: const Text(
-            'Profil, bütün puantaj ve avans kayıtları kalıcı olarak silinir. '
+        content: Text(
+            'Profil, bütün puantaj, avans ve not kayıtları kalıcı olarak silinir'
+            '${Bulut.oturum.value != null ? ' (bulut hesabınızdaki kopya dahil)' : ''}. '
             'Bu işlem geri alınamaz.'),
         actions: [
           TextButton(
@@ -95,6 +98,10 @@ class AyarlarSayfasi extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.only(bottom: 40),
         children: [
+          if (Bulut.oturum.value != null) ...[
+            baslik('Hesabım'),
+            const HesabimKarti(),
+          ],
           baslik('Bilgilerim'),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),

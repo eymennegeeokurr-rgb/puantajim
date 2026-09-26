@@ -1,0 +1,55 @@
+# Codemagic derleme ayarı (GitHub Actions kullanılamadığında)
+# codemagic.io > GitHub ile giriş > Add application > puantajim deposu > Start new build
+#
+# Çıktılar (derleme bitince "Artifacts" bölümünde):
+#   app-release.apk      -> Android'e kurulur
+#   puantajim_web.zip    -> iPhone için web uygulaması (Netlify Drop'a sürüklenir)
+
+workflows:
+  puantajim:
+    name: Puantajım - APK ve Web
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      java: 17
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: '*'
+          include: true
+    scripts:
+      - name: Android ve web klasörlerini oluştur (mevcut dosyalara dokunmaz)
+        script: |
+          flutter create --platforms=android,web --org com.santiye --project-name puantajim .
+
+      - name: Uygulama adı, simge ve sabit imza anahtarı
+        script: |
+          perl -pi -e 's/android:label="puantajim"/android:label="Puantajım"/' android/app/src/main/AndroidManifest.xml
+          if [ -d android_ikon ]; then cp -R android_ikon/ android/app/src/main/res/; fi
+          if [ -f android_imza/debug.keystore ]; then
+            mkdir -p ~/.android
+            cp android_imza/debug.keystore ~/.android/debug.keystore
+          else
+            echo "UYARI: android_imza/debug.keystore bulunamadı"
+          fi
+
+      - name: Bağımlılıklar
+        script: flutter pub get
+
+      - name: Hesap testleri
+        script: flutter test
+
+      - name: APK derle
+        script: flutter build apk --release
+
+      - name: Web uygulamasını derle ve paketle
+        script: |
+          flutter build web --release --no-web-resources-cdn
+          dart run tool/pwa_hazirla.dart
+          cd build/web && zip -r ../../puantajim_web.zip . && cd ../..
+
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
+      - puantajim_web.zip
