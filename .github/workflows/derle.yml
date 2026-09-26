@@ -53,10 +53,23 @@ jobs:
           grep -q 'android.permission.INTERNET' $M || \
             sed -i '0,/<application/s//<uses-permission android:name="android.permission.INTERNET"\/>\n    <application/' $M
           if [ -d android_ikon ]; then cp -r android_ikon/* android/app/src/main/res/; fi
+          # Firebase en az Android 6 (API 23) ister
+          for G in android/app/build.gradle.kts android/app/build.gradle; do
+            [ -f $G ] || continue
+            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = maxOf(23, flutter.minSdkVersion)/' $G
+            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion Math.max(23, flutter.minSdkVersion)/' $G
+          done
 
       - name: Sabit imza anahtarı (APK güncellemeleri eski sürümün üzerine kurulabilsin)
+        env:
+          IMZA_ANAHTARI: ${{ secrets.IMZA_ANAHTARI }}
         run: |
-          if [ -f android_imza/debug.keystore ]; then
+          mkdir -p ~/.android
+          if [ -n "$IMZA_ANAHTARI" ]; then
+            # Gizli ayarlardan (Settings > Secrets > Actions > IMZA_ANAHTARI)
+            echo "$IMZA_ANAHTARI" | base64 -d > ~/.android/debug.keystore
+            echo "İmza anahtarı gizli ayarlardan alındı"
+          elif [ -f android_imza/debug.keystore ]; then
             mkdir -p ~/.android
             cp android_imza/debug.keystore ~/.android/debug.keystore
           else
