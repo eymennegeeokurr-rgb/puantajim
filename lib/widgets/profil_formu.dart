@@ -28,6 +28,7 @@ class _ProfilFormuState extends State<ProfilFormu> {
       _gorev,
       _firma,
       _ucret,
+      _yol,
       _saat,
       _mola,
       _banka,
@@ -38,6 +39,7 @@ class _ProfilFormuState extends State<ProfilFormu> {
   late double _mesaiKatsayi; // 1.25 / 1.30 / 1.50
   late double _pazarEk; // 1 / 1.5 / 2
   late bool _pazarKesintisi;
+  late bool _yolIsGunu; // false: 30'a böl, true: iş gününe böl
   bool _gelismis = false;
   bool _kaydediliyor = false;
 
@@ -52,6 +54,7 @@ class _ProfilFormuState extends State<ProfilFormu> {
     _gorev = TextEditingController(text: p?.gorev ?? '');
     _firma = TextEditingController(text: p?.firma ?? '');
     _ucret = TextEditingController(text: _tutarYazi(p?.ucret ?? 0));
+    _yol = TextEditingController(text: _tutarYazi(p?.yolAylik ?? 0));
     _saat = TextEditingController(text: Bicim.sayi(p?.gunlukSaat ?? 7.5));
     _mola = TextEditingController(text: Bicim.sayi(p?.molaSaat ?? 1));
     _banka = TextEditingController(text: _tutarYazi(p?.bankaTutar ?? 0));
@@ -67,13 +70,25 @@ class _ProfilFormuState extends State<ProfilFormu> {
     _pazarEk = p?.pazarEkYevmiye ?? 2;
     if (![1.0, 1.5, 2.0].contains(_pazarEk)) _pazarEk = 2;
     _pazarKesintisi = p?.pazarKesintisi ?? true;
+    _yolIsGunu = p?.yolIsGununeBol ?? false;
     _ucret.addListener(() => setState(() {}));
+    _yol.addListener(() => setState(() {}));
     _banka.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
-    for (final c in [_ad, _gorev, _firma, _ucret, _saat, _mola, _banka, _sgkBrut]) {
+    for (final c in [
+      _ad,
+      _gorev,
+      _firma,
+      _ucret,
+      _yol,
+      _saat,
+      _mola,
+      _banka,
+      _sgkBrut
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -93,6 +108,8 @@ class _ProfilFormuState extends State<ProfilFormu> {
       mesaiKatsayisi: _mesaiKatsayi,
       pazarEkYevmiye: _pazarEk,
       pazarKesintisi: _pazarKesintisi,
+      yolAylik: Bicim.sayiOku(_yol.text) ?? 0,
+      yolIsGununeBol: _yolIsGunu,
       molaSaat: Bicim.sayiOku(_mola.text) ?? 1,
       bankaTipi: _bankaTipi,
       bankaTutar:
@@ -114,7 +131,10 @@ class _ProfilFormuState extends State<ProfilFormu> {
   Widget build(BuildContext context) {
     final renk = Theme.of(context).colorScheme;
     final ucret = Bicim.sayiOku(_ucret.text);
-    final asgari = AsgariUcret.yil(DateTime.now().year);
+    final yol = Bicim.sayiOku(_yol.text);
+    final simdi = DateTime.now();
+    final asgari = AsgariUcret.yil(simdi.year);
+    final buAyIsGunu = Hesaplama.isGunuSayisi(simdi.year, simdi.month);
     const bosluk = SizedBox(height: 14);
     const sayiKlavye = TextInputType.numberWithOptions(decimal: true);
     final sayiFiltre = [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))];
@@ -187,6 +207,55 @@ class _ProfilFormuState extends State<ProfilFormu> {
           ),
 
           // ------------------------------------------------------------------
+          baslik('Yol parası'),
+          TextFormField(
+            controller: _yol,
+            keyboardType: sayiKlavye,
+            inputFormatters: sayiFiltre,
+            decoration: const InputDecoration(
+              labelText: 'Aylık yol parası (₺)',
+              prefixIcon: Icon(Icons.directions_bus_outlined),
+              helperText:
+                  'Boş bırakırsanız yol parası hesaplanmaz. Sadece geldiğiniz günler sayılır.',
+              helperMaxLines: 2,
+            ),
+            validator: (v) {
+              if (v == null || v.trim().isEmpty) return null;
+              final d = Bicim.sayiOku(v);
+              if (d == null || d < 0) return 'Geçerli bir tutar girin';
+              return null;
+            },
+          ),
+          if (yol != null && yol > 0) ...[
+            const SizedBox(height: 10),
+            SegmentedButton<bool>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: false, label: Text('30 güne böl')),
+                ButtonSegment(value: true, label: Text('İş gününe böl')),
+              ],
+              selected: {_yolIsGunu},
+              onSelectionChanged: (s) => setState(() => _yolIsGunu = s.first),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _yolIsGunu
+                  ? 'Bu ay $buAyIsGunu iş günü (pazar hariç) → günlük yol '
+                      '${Bicim.para(yol / buAyIsGunu)}. Her ay o ayın iş gününe bölünür; '
+                      'ayın tamamına gelen yolun tamamını alır.'
+                  : 'Günlük yol ${Bicim.para(yol / 30)} (aylık ÷ 30). '
+                      'Geldiğiniz her gün bu kadar eklenir.',
+              style: aciklamaStil,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'Geldim ve Yarım Gün sayılır (pazar çalışması dahil). Gelmedim, izin, '
+              'rapor, tatil ve girilmemiş günlerin yolu sayılmaz. Yol parası eldene eklenir.',
+              style: aciklamaStil,
+            ),
+          ],
+
+          // ------------------------------------------------------------------
           baslik('Bankaya yatan maaş'),
           SegmentedButton<BankaTipi>(
             showSelectedIcon: false,
@@ -236,7 +305,8 @@ class _ProfilFormuState extends State<ProfilFormu> {
               ),
               child: Text(
                 '30 gün tam çalışınca:  Banka ${Bicim.para(bankaAylik)}  •  '
-                'Elden ${Bicim.para(ucret - bankaAylik)}',
+                'Elden ${Bicim.para(ucret - bankaAylik)}'
+                '${yol != null && yol > 0 ? ' + yol' : ''}',
                 style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               ),
             ),

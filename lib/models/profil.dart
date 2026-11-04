@@ -56,6 +56,16 @@ class Profil {
   /// true: Haftada mazeretsiz "Gelmedim" varsa o haftanın pazar ücreti kesilir
   final bool pazarKesintisi;
 
+  // ---- Yol parası ----
+
+  /// Kişinin kendi belirlediği AYLIK yol parası (0 = yol parası yok).
+  /// Aya bölünür; sadece gelinen günler (Geldim, Yarım Gün) toplanır.
+  final double yolAylik;
+
+  /// false: aylık yol ÷ 30 = günlük yol
+  /// true : aylık yol ÷ ayın iş günü (pazar hariç) = günlük yol
+  final bool yolIsGununeBol;
+
   // ---- Banka / elden ----
 
   /// Bankaya yatan kısım: yok / asgari ücret / anlaşılan tutar
@@ -90,6 +100,8 @@ class Profil {
     this.molaSaat = 1.0,
     this.pazarEkYevmiye = 2,
     this.pazarKesintisi = true,
+    this.yolAylik = 0,
+    this.yolIsGununeBol = false,
     this.bankaTipi = BankaTipi.yok,
     this.bankaTutar = 0,
     this.hacizOrani = 0,
@@ -102,6 +114,9 @@ class Profil {
 
   /// Bir saatlik ücret karşılığı
   double get saatlikUcret => gunlukSaat > 0 ? gunlukUcret / gunlukSaat : 0;
+
+  /// Yol parası tanımlı mı?
+  bool get yolVar => yolAylik > 0;
 
   /// "1'e 2" gibi pazar oranı yazısı
   String get pazarEtiketi {
@@ -130,6 +145,8 @@ class Profil {
         'molaSaat': molaSaat,
         'pazarEkYevmiye': pazarEkYevmiye,
         'pazarKesintisi': pazarKesintisi,
+        'yolAylik': yolAylik,
+        'yolIsGununeBol': yolIsGununeBol,
         'bankaTipi': bankaTipi.name,
         'bankaTutar': bankaTutar,
         'hacizOrani': hacizOrani,
@@ -149,6 +166,8 @@ class Profil {
         molaSaat: (j['molaSaat'] as num?)?.toDouble() ?? 1.0,
         pazarEkYevmiye: (j['pazarEkYevmiye'] as num?)?.toDouble() ?? 2,
         pazarKesintisi: (j['pazarKesintisi'] as bool?) ?? true,
+        yolAylik: (j['yolAylik'] as num?)?.toDouble() ?? 0,
+        yolIsGununeBol: (j['yolIsGununeBol'] as bool?) ?? false,
         bankaTipi: BankaTipiX.adindan(j['bankaTipi'] as String?),
         bankaTutar: (j['bankaTutar'] as num?)?.toDouble() ?? 0,
         hacizOrani: (j['hacizOrani'] as num?)?.toDouble() ?? 0,

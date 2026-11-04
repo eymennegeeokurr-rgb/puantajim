@@ -101,6 +101,8 @@ jobs:
         env:
           NOTLAR: ${{ github.event.head_commit.message }}
         run: |
+          # Güncelleme penceresinde sadece commit mesajının ilk paragrafı görünsün
+          NOTLAR=$(printf '%s\n' "${NOTLAR:-}" | sed '/^[[:space:]]*$/,$d')
           jq -n \
             --argjson surum "$SURUM" \
             --arg surumAdi "$SURUM_ADI" \

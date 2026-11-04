@@ -58,6 +58,13 @@ class AylikOzet {
   final double avans;
   final double kesinti;
 
+  // ---- Yol parası ----
+  final double yolAylik; // Kişinin belirlediği aylık yol parası
+  final bool yolIsGununeBol; // true: iş gününe (pazar hariç), false: 30'a bölünür
+  final int yolBolen; // Aylık yolun bölündüğü gün (30 veya ayın iş günü)
+  final double yolGunluk; // Bir günlük yol parası
+  final int yolGunu; // Yol parası hesaplanan (gelinen) gün
+
   // ---- Rapor ----
   final int raporGunu; // Bu aydaki raporlu gün
   final double sgkOdenekGunu; // SGK'nın ödeme yaptığı gün (oran farkı dahil değil)
@@ -96,6 +103,11 @@ class AylikOzet {
     required this.ekOdeme,
     required this.avans,
     required this.kesinti,
+    this.yolAylik = 0,
+    this.yolIsGununeBol = false,
+    this.yolBolen = 30,
+    this.yolGunluk = 0,
+    this.yolGunu = 0,
     required this.raporGunu,
     required this.sgkOdenekGunu,
     required this.sgkGunlukKazanc,
@@ -127,8 +139,15 @@ class AylikOzet {
   /// Kesilen pazar sayısı
   int get kesilenPazar => kesilenPazarGunleri.length;
 
-  /// Toplam hak: temel ücret + mesai + pazar çalışması + ek ödemeler
-  double get brut => temelUcret + mesaiUcreti + pazarCalismaUcreti + ekOdeme;
+  /// Yol parası tanımlı mı?
+  bool get yolVar => yolAylik > 0;
+
+  /// Bu ay hak edilen yol parası: gelinen gün × günlük yol
+  double get yolParasi => yolGunu * yolGunluk;
+
+  /// Toplam hak: temel ücret + mesai + pazar çalışması + yol + ek ödemeler
+  double get brut =>
+      temelUcret + mesaiUcreti + pazarCalismaUcreti + yolParasi + ekOdeme;
 
   /// SGK'nın ödediği ve işverenin ödeyeceğinden düşülen tutar
   /// (sadece "rapor tam ödenir" açıkken düşülür)
@@ -147,6 +166,7 @@ class AylikOzet {
   double get bankayaYatan => bankaHakedis - haciz;
 
   /// Elden ödenecek: işverenin toplam ödemesi − bankaya giden (haciz dahil)
+  /// (Yol parası bankaya yatmaz, eldene eklenir.)
   double get elden => net - bankaHakedis;
 
   bool get bankaVar => bankaTipi != BankaTipi.yok && bankaAylik > 0;
@@ -166,7 +186,10 @@ class AylikOzet {
 ///     ek yevmiye (1'e 1 / 1'e 1,5 / 1'e 2) ödenir.
 ///   Günlük       = maaş ÷ 30,  Temel = ödenen gün × günlük
 ///   Mesai        = mesai saati × (günlük ÷ 7,5) × 1,5
-///   Toplam hak   = temel + mesai + ek ödeme
+///   YOL PARASI   = kişinin belirlediği aylık yol ÷ (30 veya ayın iş günü)
+///                  × gelinen gün (Geldim ve Yarım Gün = 1, pazar çalışması dahil).
+///                  Gelmedi, izin, rapor, tatil ve girilmemiş günlerde yol yok.
+///   Toplam hak   = temel + mesai + pazar çalışması + yol + ek ödeme
 ///
 /// RAPOR (SGK geçici iş göremezlik ödeneği, tahmini):
 ///   Günlük kazanç = SGK brüt ÷ 30 (en az brüt asgari/30, en fazla 9 katı)
@@ -181,11 +204,26 @@ class AylikOzet {
 ///   Haciz        = banka × oran (1/4 veya 1/10) → icraya
 ///   Bankaya net  = banka − haciz
 ///   Elden        = (toplam hak − SGK payı − avans − kesinti) − banka
+///                  (yol parası eldene dahildir)
 class Hesaplama {
   Hesaplama._();
 
   static String _anahtar(DateTime t) =>
       '${t.year.toString().padLeft(4, '0')}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
+
+  /// Ayın iş günü sayısı (Pazar hariç tüm günler)
+  static int isGunuSayisi(int yil, int ay) {
+    final gunSayisi = DateTime(yil, ay + 1, 0).day;
+    var n = 0;
+    for (var g = 1; g <= gunSayisi; g++) {
+      if (DateTime(yil, ay, g).weekday != DateTime.sunday) n++;
+    }
+    return n;
+  }
+
+  /// Yol parası sayılan gün mü? (işe gelinen gün)
+  static bool yolSayilir(GunDurumu d) =>
+      d == GunDurumu.geldi || d == GunDurumu.yarimGun;
 
   static AylikOzet hesapla({
     required Profil profil,
@@ -213,7 +251,6 @@ class Hesaplama {
       harita[k.tarih] = k;
       if (k.durum == GunDurumu.raporlu) raporGunu++;
     }
-
 
     double ekOdeme = 0, avans = 0, kesinti = 0;
     for (final h in hareketler) {
@@ -264,7 +301,10 @@ class Hesaplama {
     //  - Hafta tatili ücreti (1 gün): çalışsa da çalışmasa da ödenir.
     //    Ancak o hafta mazeretsiz "Gelmedim" varsa kesilir (ayar açıksa).
     //  - Pazar çalıştıysa ("Geldim"): ayrıca [pazarEkYevmiye] kadar ek yevmiye.
+    //
+    // YOL: Geldim / Yarım Gün girilen her gün (pazar dahil) 1 gün yol sayılır.
     double ucretliToplam = 0, primToplam = 0, pazarCalisma = 0;
+    var yolGunu = 0;
     final otomatikTatil = <int>{};
     final kesilenPazar = <int>{};
     var isaretsiz = 0;
@@ -275,6 +315,8 @@ class Hesaplama {
       final pazar = t.weekday == DateTime.sunday;
       final pazarKesilir = pazar && profil.pazarKesintisi && haftadaGelmedi(t);
       double ucretli = 0, prim = 0;
+
+      if (k != null && yolSayilir(k.durum)) yolGunu++;
 
       if (pazar && (k == null || k.durum.pazarTatilUcretiAlir)) {
         if (k == null && t.isAfter(bugunGun)) {
@@ -326,6 +368,12 @@ class Hesaplama {
       odenenGun = odenenGunlukte;
       temel = odenenGunlukte * gunluk;
     }
+
+    // ---- Yol parası: aylık yol ÷ (30 veya ayın iş günü)
+    final yolBolen =
+        profil.yolIsGununeBol ? isGunuSayisi(ay.year, ay.month) : 30;
+    final yolGunluk =
+        profil.yolAylik > 0 && yolBolen > 0 ? profil.yolAylik / yolBolen : 0.0;
 
     // ---- SGK rapor parası (tahmini)
     // Rapor ardışık günlerden oluşur; önceki aydan devam eden rapor da sayılır
@@ -388,6 +436,11 @@ class Hesaplama {
       ekOdeme: ekOdeme,
       avans: avans,
       kesinti: kesinti,
+      yolAylik: profil.yolAylik,
+      yolIsGununeBol: profil.yolIsGununeBol,
+      yolBolen: yolBolen,
+      yolGunluk: yolGunluk,
+      yolGunu: profil.yolAylik > 0 ? yolGunu : 0,
       raporGunu: raporGunu,
       sgkOdenekGunu: sgkGun,
       sgkGunlukKazanc: sgkGunluk,

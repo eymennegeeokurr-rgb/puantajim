@@ -50,6 +50,14 @@ class RaporUretici {
     ];
   }
 
+  /// Yol parası açıklaması: "18 gün × 250,00 ₺ (aylık 7.500 ₺ ÷ 30)"
+  String get _yolAciklama {
+    final o = ozet;
+    final bolen = o.yolIsGununeBol ? '${o.yolBolen} iş günü' : '30';
+    return 'Yol parası (${o.yolGunu} gün × ${Bicim.para(o.yolGunluk)}, '
+        'aylık ${Bicim.para(o.yolAylik)} ÷ $bolen)';
+  }
+
   /// Hesap dökümü satırları (PDF ve Excel ortak)
   /// Tamamı büyük harf olan satırlar (TOPLAM, KALAN, ELDEN...) vurgulu gösterilir
   static bool vurgulu(String etiket) =>
@@ -90,6 +98,7 @@ class RaporUretici {
           'Fazla mesai (${Bicim.sayi(o.mesaiSaat)} sa × ${Bicim.para(o.saatlikUcret)}, ${profil.mesaiZamEtiketi} zamlı)',
           '+ ${Bicim.para(o.mesaiUcreti)}'
         ),
+      if (o.yolVar) (_yolAciklama, '+ ${Bicim.para(o.yolParasi)}'),
       if (o.ekOdeme > 0) ('Ek ödeme / prim', '+ ${Bicim.para(o.ekOdeme)}'),
       ('TOPLAM HAKEDİŞ', Bicim.para(o.brut)),
       if (o.raporGunu > 0 && o.raporTamOdenir)
@@ -107,7 +116,11 @@ class RaporUretici {
   List<(String, String)> get odemeSatirlari {
     final o = ozet;
     if (!o.bankaVar) {
-      return [('ELDEN ÖDENECEK', Bicim.para(o.net))];
+      return [
+        ('ELDEN ÖDENECEK', Bicim.para(o.net)),
+        if (o.yolParasi > 0)
+          ('(Eldene dahil yol parası)', Bicim.para(o.yolParasi)),
+      ];
     }
     final kaynak = o.bankaTipi == BankaTipi.asgari
         ? '${o.asgariYili} net asgari ücret'
@@ -120,6 +133,8 @@ class RaporUretici {
         ('Haciz kesintisi (${o.hacizEtiketi}, icraya gider)', '− ${Bicim.para(o.haciz)}'),
       ('BANKAYA NET YATACAK', Bicim.para(o.bankayaYatan)),
       ('ELDEN ÖDENECEK', Bicim.para(o.elden)),
+      if (o.yolParasi > 0)
+        ('(Eldene dahil yol parası)', Bicim.para(o.yolParasi)),
       if (o.raporGunu > 0)
         (
           'SGK rapor parası (ayrıca SGK yatırır, tahmini)',
@@ -203,6 +218,12 @@ class RaporUretici {
                   '${Bicim.kisaTarih(ozet.ay)} - ${Bicim.kisaTarih(DateTime(ozet.ay.year, ozet.ay.month, ozet.gunSayisi))}',
                   'Normal Mesai',
                   'Günde ${Bicim.sayi(profil.gunlukSaat)} saat'),
+              if (ozet.yolVar)
+                _bilgiSatiri(
+                    'Yol Parası',
+                    'Aylık ${Bicim.para(ozet.yolAylik)}',
+                    'Günlük Yol',
+                    '${Bicim.para(ozet.yolGunluk)} (÷ ${ozet.yolIsGununeBol ? '${ozet.yolBolen} iş günü' : '30'})'),
             ],
           ),
           pw.SizedBox(height: 10),
@@ -314,6 +335,13 @@ class RaporUretici {
                 '"Kesildi": o hafta mazeretsiz devamsızlık olduğu için hafta tatili ücreti ödenmedi.',
                 style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
           ],
+          if (ozet.yolVar) ...[
+            pw.SizedBox(height: 4),
+            pw.Text(
+                'Yol parası sadece gelinen günler (Geldi, Yarım Gün, Pazar Çalıştı) için hesaplandı; '
+                'gelinmeyen, izinli, raporlu ve tatil günlerinin yolu sayılmadı.',
+                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+          ],
           if (ozet.isaretsizGun > 0) ...[
             pw.SizedBox(height: 8),
             pw.Text(
@@ -353,6 +381,7 @@ class RaporUretici {
       for (final d in GunDurumu.values)
         if (ozet.adet(d) > 0) [d.raporEtiketi, '${ozet.adet(d)}'],
       ['Toplam mesai', '${Bicim.sayi(ozet.mesaiSaat)} saat'],
+      if (ozet.yolVar) ['Yol sayılan gün', '${ozet.yolGunu}'],
       if (ozet.isaretsizGun > 0) ['Girilmemiş gün', '${ozet.isaretsizGun}'],
     ];
     return pw.Container(
@@ -471,6 +500,17 @@ class RaporUretici {
       DoubleCellValue(ozet.mesaiSaat),
     ]);
     _kalinYap(p, p.maxRows - 1, 6, kalin);
+    if (ozet.yolVar) {
+      p.appendRow([
+        TextCellValue('YOL SAYILAN GÜN'),
+        TextCellValue(''),
+        TextCellValue(''),
+        TextCellValue(''),
+        TextCellValue(''),
+        IntCellValue(ozet.yolGunu),
+      ]);
+      _kalinYap(p, p.maxRows - 1, 6, kalin);
+    }
     p.setColumnWidth(0, 12);
     p.setColumnWidth(1, 6);
     p.setColumnWidth(2, 15);
@@ -492,6 +532,9 @@ class RaporUretici {
       }
     }
     h.appendRow([TextCellValue('Toplam mesai (saat)'), DoubleCellValue(ozet.mesaiSaat)]);
+    if (ozet.yolVar) {
+      h.appendRow([TextCellValue('Yol sayılan gün'), IntCellValue(ozet.yolGunu)]);
+    }
     if (ozet.isaretsizGun > 0) {
       h.appendRow([TextCellValue('Girilmemiş gün'), IntCellValue(ozet.isaretsizGun)]);
     }
@@ -518,6 +561,9 @@ class RaporUretici {
       }
     }
     h.appendRow([TextCellValue('Elden (sayı)'), DoubleCellValue(_yuvarla(ozet.elden))]);
+    if (ozet.yolVar) {
+      h.appendRow([TextCellValue('Yol parası (sayı)'), DoubleCellValue(_yuvarla(ozet.yolParasi))]);
+    }
     h.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 0)).cellStyle = kalin;
     h.setColumnWidth(0, 55);
     h.setColumnWidth(1, 20);

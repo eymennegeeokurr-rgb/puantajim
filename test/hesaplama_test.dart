@@ -255,6 +255,70 @@ void main() {
     });
   });
 
+  group('Yol parası', () {
+    // Eylül 2026: 30 gün, 4 pazar → 26 iş günü
+    const py = Profil(adSoyad: 'Test', ucret: 45000, yolAylik: 9000);
+    const pyIs = Profil(
+        adSoyad: 'Test', ucret: 45000, yolAylik: 9000, yolIsGununeBol: true);
+
+    test('Yol tanımlı değilse 0', () {
+      final o = hesapla(p, 2026, 9, tamAy(2026, 9));
+      expect(o.yolParasi, 0);
+      expect(o.brut, 45000);
+    });
+
+    test("30'a böl: günlük 300, 26 gelinen gün = 7.800", () {
+      final o = hesapla(py, 2026, 9, tamAy(2026, 9));
+      expect(o.yolGunluk, 300);
+      expect(o.yolGunu, 26);
+      expect(o.yolParasi, 7800);
+      expect(o.brut, 45000 + 7800);
+      expect(o.elden, o.net); // banka yok: hepsi elden
+    });
+
+    test('İş gününe böl: ayın tamamına gelen yolun tamamını alır', () {
+      final o = hesapla(pyIs, 2026, 9, tamAy(2026, 9));
+      expect(o.yolBolen, 26);
+      expect(o.yolParasi, closeTo(9000, 0.001));
+    });
+
+    test('Gelmedi, izin ve rapor günlerinin yolu sayılmaz', () {
+      final o = hesapla(
+          py,
+          2026,
+          9,
+          tamAy(2026, 9, degisen: {
+            8: GunDurumu.gelmedi,
+            9: GunDurumu.ucretliIzin,
+            10: GunDurumu.raporlu,
+          }));
+      expect(o.yolGunu, 23);
+      expect(o.yolParasi, 23 * 300);
+    });
+
+    test('Yarım gün ve pazar çalışması yol sayılır, girilmemiş gün sayılmaz', () {
+      final o = hesapla(
+          py,
+          2026,
+          9,
+          tamAy(2026, 9,
+              degisen: {4: GunDurumu.yarimGun, 13: GunDurumu.geldi}, bos: {15}));
+      expect(o.yolGunu, 26); // 26 - 1 (boş) + 1 (pazar çalıştı)
+    });
+
+    test('Yol parası bankaya değil eldene eklenir', () {
+      const pb = Profil(
+          adSoyad: 'Test',
+          ucret: 45000,
+          yolAylik: 9000,
+          bankaTipi: BankaTipi.ozel,
+          bankaTutar: 30000);
+      final o = hesapla(pb, 2026, 9, tamAy(2026, 9));
+      expect(o.bankaHakedis, 30000);
+      expect(o.elden, closeTo(15000 + 7800, 0.001));
+    });
+  });
+
   test('Giriş-çıkıştan mesai önerisi', () {
     // 08:00-19:00 = 11 saat - 1 mola - 7,5 normal = 2,5 saat
     expect(GunKaydi.mesaiOner('08:00', '19:00', 7.5, 1), 2.5);
