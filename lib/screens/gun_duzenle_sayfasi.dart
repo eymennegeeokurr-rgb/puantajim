@@ -506,8 +506,8 @@ class _GunPaneliState extends State<GunPaneli> {
             Expanded(child: Text(yazi, style: const TextStyle(fontSize: 13))),
           ]),
           if (uyusmazlik == Uyusmazlik.farkli)
-            Padding(
-              padding: const EdgeInsets.only(left: 26, top: 2),
+            const Padding(
+              padding: EdgeInsets.only(left: 26, top: 2),
               child: Text('Sizin kaydınızla uyuşmuyor',
                   style: TextStyle(fontSize: 12, color: turuncu, fontWeight: FontWeight.w600)),
             ),

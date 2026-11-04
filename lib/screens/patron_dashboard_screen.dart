@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/depo.dart';
 import '../data/patron_depo.dart';
+import '../models/gun_kaydi.dart';
 import '../models/veri_paketi.dart';
 import '../services/app_mode_controller.dart';
 import '../services/bicim.dart';
