@@ -59,6 +59,10 @@ extension GunDurumuX on GunDurumu {
         GunDurumu.raporlu: Color(0xFFAD1457),
       }[this]!;
 
+  /// Takvim ve seçim kutuları için yumuşak (pastel) zemin rengi
+  Color pastel({required bool koyu, required Color zemin}) =>
+      Color.alphaBlend(renk.withValues(alpha: koyu ? 0.26 : 0.13), zemin);
+
   IconData get ikon => const {
         GunDurumu.geldi: Icons.check_circle,
         GunDurumu.yarimGun: Icons.timelapse,
@@ -189,6 +193,10 @@ class GunKaydi {
   /// Sadece durum "Raporlu" ise anlamlı
   final RaporTuru raporTuru;
 
+  /// Sadece PAZAR kaydında anlamlı: haftalık 45 saat tamamlanmasa bile
+  /// hafta tatili ücreti verilir (patron inisiyatifi).
+  final bool pazarUcretiVer;
+
   const GunKaydi({
     required this.tarih,
     required this.durum,
@@ -197,6 +205,7 @@ class GunKaydi {
     this.mesaiSaat = 0,
     this.not,
     this.raporTuru = RaporTuru.ayakta,
+    this.pazarUcretiVer = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -207,6 +216,7 @@ class GunKaydi {
         if (mesaiSaat > 0) 'mesai': mesaiSaat,
         if (not != null && not!.isNotEmpty) 'not': not,
         if (durum == GunDurumu.raporlu) 'rapor': raporTuru.name,
+        if (pazarUcretiVer) 'pazarVer': true,
       };
 
   factory GunKaydi.fromJson(Map<String, dynamic> j) => GunKaydi(
@@ -217,21 +227,31 @@ class GunKaydi {
         mesaiSaat: (j['mesai'] as num?)?.toDouble() ?? 0,
         not: j['not'] as String?,
         raporTuru: RaporTuruX.adindan(j['rapor'] as String?),
+        pazarUcretiVer: (j['pazarVer'] as bool?) ?? false,
       );
 
   GunKaydi copyWith({
+    String? tarih,
     GunDurumu? durum,
     double? mesaiSaat,
+    bool? pazarUcretiVer,
   }) =>
       GunKaydi(
-        tarih: tarih,
+        tarih: tarih ?? this.tarih,
         durum: durum ?? this.durum,
         giris: giris,
         cikis: cikis,
         mesaiSaat: mesaiSaat ?? this.mesaiSaat,
         not: not,
         raporTuru: raporTuru,
+        pazarUcretiVer: pazarUcretiVer ?? this.pazarUcretiVer,
       );
+
+  /// İki kayıt puantaj açısından aynı mı? (durum + mesai; not/saat önemsiz)
+  bool ayniMi(GunKaydi? o) =>
+      o != null &&
+      o.durum == durum &&
+      (o.mesaiSaat - mesaiSaat).abs() < 0.01;
 
   /// Giriş-çıkış arası toplam süre (saat). Gece yarısını geçen vardiya desteklenir.
   static double? sureHesapla(String? giris, String? cikis) {

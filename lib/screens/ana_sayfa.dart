@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/bulut.dart';
 import '../services/guncelleme.dart';
+import '../widgets/mod_secici.dart';
 
 import 'ayarlar_sayfasi.dart';
 import 'hareketler_sayfasi.dart';
@@ -30,12 +31,20 @@ class _AnaSayfaState extends State<AnaSayfa> with WidgetsBindingObserver {
       if (yeni != null && mounted) {
         await Guncelleme.pencereGoster(context, yeni);
       }
+      if (mounted) await modSecimiGerekirseSor(context);
     });
+    // Yönetici yetkisi sonradan gelirse (ilk girişte) mod sorusu sorulsun
+    Bulut.yonetici.addListener(_yetkiDegisti);
+  }
+
+  void _yetkiDegisti() {
+    if (mounted && Bulut.yonetici.value) modSecimiGerekirseSor(context);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    Bulut.yonetici.removeListener(_yetkiDegisti);
     super.dispose();
   }
 

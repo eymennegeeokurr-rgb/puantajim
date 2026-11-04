@@ -91,6 +91,7 @@ class Bulut {
 
   static const _kOturum = 'oturum';
   static const _kVeriSahibi = 'veriSahibi';
+  static const _kYonetici = 'yoneticiOnbellek';
 
   /// Firebase bilgileri girilmiş mi? (Girilmemişse uygulama girişsiz çalışır)
   static bool get aktif => FirebaseAyar.tamam;
@@ -103,6 +104,9 @@ class Bulut {
   static final senkronDurumu = ValueNotifier<String>('');
 
   static Timer? _bekletme;
+
+  /// Çıkışta çağrılır (patron verisinin telefondaki kopyası silinir)
+  static Future<void> Function()? cikisSonrasi;
   static bool _senkronda = false;
 
   static FirebaseFirestore get _db => FirebaseFirestore.instance;
@@ -119,6 +123,8 @@ class Bulut {
       try {
         oturum.value =
             Oturum.fromJson(jsonDecode(kayitli) as Map<String, dynamic>);
+        // Son bilinen yönetici durumu: patron modu internetsiz de açılsın
+        yonetici.value = _depo.prefs.getBool(_kYonetici) ?? false;
       } catch (_) {}
     }
     if (!aktif) return;
@@ -294,7 +300,9 @@ class Bulut {
     } catch (_) {}
     _oturumuKaydet(null);
     yonetici.value = false;
+    await _depo.prefs.remove(_kYonetici);
     await _depo.prefs.remove(_kVeriSahibi);
+    cikisSonrasi?.call();
     await _depo.tumunuSil(bulutaBildir: false);
   }
 
@@ -461,6 +469,7 @@ class Bulut {
     try {
       final d = await _db.collection('yoneticiler').doc(oturum.value!.uid).get();
       yonetici.value = d.exists;
+      await _depo.prefs.setBool(_kYonetici, d.exists);
     } catch (_) {}
   }
 
@@ -495,6 +504,43 @@ class Bulut {
         .snapshots()
         .map((q) => q.docs.map(Istek.belgeden).toList()
           ..sort((a, b) => a.calisanAd.toLowerCase().compareTo(b.calisanAd.toLowerCase())));
+  }
+
+  // ===========================================================================
+  // PATRON PUANTAJI (patronun kendi bulut alanında, ay ay ayrı belge)
+  //   kullanicilar/{patronUid}/veri/ekip-YYYY-MM   veri (JSON metni), zaman
+  // Mevcut kurallar "kendi verisi" olarak izin verir; kural değişikliği gerekmez.
+  // ===========================================================================
+
+  /// Bağlıysa kendi uid'im
+  static String? get benimUid => _baglanti ? oturum.value!.uid : null;
+
+  static DocumentReference<Map<String, dynamic>> _kendiBelgem(String ad) =>
+      _db.collection('kullanicilar').doc(oturum.value!.uid).collection('veri').doc(ad);
+
+  /// Kendi bulut alanımdaki bir belgeyi okur (yoksa / bağlantı yoksa null)
+  static Future<({String metin, int zaman})?> belgeGetir(String ad) async {
+    if (!_baglanti) return null;
+    final d = await _kendiBelgem(ad)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 12));
+    final metin = d.data()?['veri'] as String?;
+    if (metin == null) return null;
+    return (metin: metin, zaman: (d.data()?['zaman'] as num?)?.toInt() ?? 0);
+  }
+
+  /// Kendi bulut alanıma bir belge yazar. Bağlantı yoksa false döner.
+  static Future<bool> belgeYaz(String ad, String metin, int zaman) async {
+    if (!_baglanti) return false;
+    try {
+      await _kendiBelgem(ad)
+          .set({'veri': metin, 'zaman': zaman})
+          .timeout(const Duration(seconds: 15));
+      return true;
+    } catch (e) {
+      debugPrint('Belge yazılamadı ($ad): $e');
+      return false;
+    }
   }
 
   /// Onay vermiş elemanın verisi (sadece okuma)

@@ -1,0 +1,104 @@
+# TEST DERLEMESİ: "test" dalına gönderilen kod buradan derlenir.
+#  - Kod analizi + hesap testleri çalışır
+#  - Test APK'sı ayrı bir linke yüklenir (herkese güncelleme GİTMEZ):
+#      https://github.com/KULLANICI/DEPO/releases/download/test-apk/Puantajim-test.apk
+#  - Sürüm numarası yayındaki son sürümle aynıdır: telefondaki uygulamanın üzerine
+#    kurulur, bir sonraki gerçek sürüm çıkınca normal güncelleme uyarısı gelir.
+name: Test Derlemesi
+
+on:
+  push:
+    branches: [test]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: test-derleme
+  cancel-in-progress: true
+
+jobs:
+  derle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Android klasörünü oluştur (mevcut dosyalara dokunmaz)
+        run: flutter create --platforms=android,web --org com.santiye --project-name puantajim .
+
+      - name: Uygulama adı, simge ve internet izni
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's/android:label="puantajim"/android:label="Puantajım"/' $M
+          # Güncelleme kontrolü için internet izni (yoksa ekle)
+          grep -q 'android.permission.INTERNET' $M || \
+            sed -i '0,/<application/s//<uses-permission android:name="android.permission.INTERNET"\/>\n    <application/' $M
+          if [ -d android_ikon ]; then cp -r android_ikon/* android/app/src/main/res/; fi
+          # Firebase en az Android 6 (API 23) ister
+          for G in android/app/build.gradle.kts android/app/build.gradle; do
+            [ -f $G ] || continue
+            sed -i 's/minSdk = flutter.minSdkVersion/minSdk = maxOf(23, flutter.minSdkVersion)/' $G
+            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion Math.max(23, flutter.minSdkVersion)/' $G
+          done
+
+      - name: Sabit imza anahtarı (APK güncellemeleri eski sürümün üzerine kurulabilsin)
+        env:
+          IMZA_ANAHTARI: ${{ secrets.IMZA_ANAHTARI }}
+        run: |
+          mkdir -p ~/.android
+          if [ -n "$IMZA_ANAHTARI" ]; then
+            # Gizli ayarlardan (Settings > Secrets > Actions > IMZA_ANAHTARI)
+            echo "$IMZA_ANAHTARI" | base64 -d > ~/.android/debug.keystore
+            echo "İmza anahtarı gizli ayarlardan alındı"
+          elif [ -f android_imza/debug.keystore ]; then
+            mkdir -p ~/.android
+            cp android_imza/debug.keystore ~/.android/debug.keystore
+          else
+            echo "UYARI: android_imza/debug.keystore bulunamadı"
+          fi
+
+      - name: Bağımlılıklar
+        run: flutter pub get
+
+      - name: Kod analizi
+        run: flutter analyze --no-fatal-infos
+
+      - name: Hesap testleri
+        run: flutter test
+
+      - name: Yayındaki son sürüm numarası
+        run: |
+          N=$(git ls-remote --tags origin 'refs/tags/v1.0.*' | sed -E 's#.*/v1\.0\.([0-9]+).*#\1#' | sort -n | tail -1)
+          [ -z "$N" ] && N=1
+          echo "SURUM=$N" >> $GITHUB_ENV
+          echo "Test sürüm numarası: $N"
+
+      - name: Test APK derle
+        run: |
+          flutter build apk --release \
+            --build-name=1.0.$SURUM --build-number=$SURUM \
+            --dart-define=SURUM=$SURUM \
+            --dart-define=GUNCELLEME_URL=https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/surum.json
+          cp build/app/outputs/flutter-apk/app-release.apk Puantajim-test.apk
+
+      - name: Test APK'yı test linkine yükle
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test-apk
+          target_commitish: ${{ github.sha }}
+          name: Puantajım TEST
+          body: "Deneme sürümü (herkese gönderilmez). Son değişiklik: ${{ github.event.head_commit.message }}"
+          prerelease: true
+          make_latest: false
+          files: Puantajim-test.apk

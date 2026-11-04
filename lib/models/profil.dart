@@ -1,3 +1,5 @@
+import '../services/puantaj_hesaplama_engine.dart';
+
 /// Ücret tipi: aylık maaş (maaş ÷ 30 = günlük) veya günlük yevmiye.
 /// (Uygulama aylıkçı çalışanlar içindir; yevmiye eski kayıtlarla uyum için duruyor.)
 enum UcretTipi { aylik, gunluk }
@@ -53,7 +55,7 @@ class Profil {
   /// 1'e 1 = 1, 1'e 1,5 = 1.5, 1'e 2 = 2 (varsayılan)
   final double pazarEkYevmiye;
 
-  /// true: Haftada mazeretsiz "Gelmedim" varsa o haftanın pazar ücreti kesilir
+  /// true: Haftalık 45 saati tamamlamayanın o haftaki pazar ücreti kesilir
   final bool pazarKesintisi;
 
   // ---- Yol parası ----
@@ -112,8 +114,9 @@ class Profil {
   /// Bir günlük ücret karşılığı
   double get gunlukUcret => ucretTipi == UcretTipi.aylik ? ucret / 30 : ucret;
 
-  /// Bir saatlik ücret karşılığı
-  double get saatlikUcret => gunlukSaat > 0 ? gunlukUcret / gunlukSaat : 0;
+  /// Bir saatlik ücret karşılığı (günlük ÷ 7,5)
+  double get saatlikUcret =>
+      PuantajHesaplamaEngine.saatlikUcret(gunlukUcret, gunlukSaat: gunlukSaat);
 
   /// Yol parası tanımlı mı?
   bool get yolVar => yolAylik > 0;

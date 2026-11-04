@@ -10,6 +10,7 @@ import '../services/guncelleme.dart';
 import '../services/paylasim.dart';
 import '../services/bulut.dart';
 import '../widgets/hesabim_karti.dart';
+import '../widgets/mod_secici.dart';
 import '../widgets/profil_formu.dart';
 
 /// Profil bilgileri, tema, yedekleme.
@@ -101,6 +102,8 @@ class AyarlarSayfasi extends StatelessWidget {
           if (Bulut.oturum.value != null) ...[
             baslik('Hesabım'),
             const HesabimKarti(),
+            baslik('Uygulama modu'),
+            const ModSeciciKarti(),
           ],
           baslik('Bilgilerim'),
           Padding(

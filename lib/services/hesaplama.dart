@@ -1,6 +1,7 @@
 import '../models/gun_kaydi.dart';
 import '../models/para_hareketi.dart';
 import '../models/profil.dart';
+import 'puantaj_hesaplama_engine.dart';
 
 /// Yıllara göre asgari ücret (aylık, 30 gün).
 /// Yeni yılın asgari ücreti açıklanınca buraya bir satır eklenir.
@@ -53,7 +54,11 @@ class AylikOzet {
   // ---- Pazar ----
   final double pazarCalisilanGun; // Pazar "Geldim" (yarım: 0,5)
   final double pazarEkYevmiye; // Çalışılan her pazar için ek yevmiye (1, 1,5, 2)
-  final Set<int> kesilenPazarGunleri; // Mazeretsiz devamsızlık nedeniyle kesilen pazarlar
+  final Set<int> kesilenPazarGunleri; // Haftalık 45 saat tamamlanmadığı için kesilen pazarlar
+  /// Saat eksik olduğu halde patron inisiyatifiyle ücreti verilen pazarlar
+  final Set<int> inisiyatifPazarGunleri;
+  /// Ayın her pazarı için o haftanın saat hesabı (ayın günü -> sonuç)
+  final Map<int, HaftaSonucu> haftalar;
   final double ekOdeme;
   final double avans;
   final double kesinti;
@@ -100,6 +105,8 @@ class AylikOzet {
     required this.pazarCalisilanGun,
     required this.pazarEkYevmiye,
     required this.kesilenPazarGunleri,
+    this.inisiyatifPazarGunleri = const {},
+    this.haftalar = const {},
     required this.ekOdeme,
     required this.avans,
     required this.kesinti,
@@ -182,7 +189,8 @@ class AylikOzet {
 ///   Ödenen gün   = toplam (en fazla 30; 31 çeken ayda 31. gün fazladan para getirmez;
 ///                  Şubat'ta ay sonuna kadar çalışan 30 güne tamamlanır)
 ///   PAZAR: Hafta tatili ücreti (1 gün) çalışsa da çalışmasa da ödenir; o hafta
-///     mazeretsiz "Gelmedim" varsa kesilir (ayar açıksa). Pazar çalışana ayrıca
+///     45 saat tamamlanmadıysa kesilir (ayar açıksa, bkz. PuantajHesaplamaEngine).
+///     Patron inisiyatifi işaretliyse kesilmez. Pazar çalışana ayrıca
 ///     ek yevmiye (1'e 1 / 1'e 1,5 / 1'e 2) ödenir.
 ///   Günlük       = maaş ÷ 30,  Temel = ödenen gün × günlük
 ///   Mesai        = mesai saati × (günlük ÷ 7,5) × 1,5
@@ -284,14 +292,6 @@ class Hesaplama {
       return false;
     }
 
-    // O haftada (Pzt-Cmt) mazeretsiz devamsızlık ("Gelmedim") var mı?
-    bool haftadaGelmedi(DateTime pazar) {
-      for (var i = 1; i <= 6; i++) {
-        final k = kayitBul(DateTime(pazar.year, pazar.month, pazar.day - i));
-        if (k != null && k.durum == GunDurumu.gelmedi) return true;
-      }
-      return false;
-    }
 
     // ---- Gün gün: ücret ödenen gün ve SGK prim günü
     // Sadece GİRİLEN günler kazandırır. Girilmemiş günler ve gelecek günler
@@ -299,7 +299,8 @@ class Hesaplama {
     //
     // PAZAR:
     //  - Hafta tatili ücreti (1 gün): çalışsa da çalışmasa da ödenir.
-    //    Ancak o hafta mazeretsiz "Gelmedim" varsa kesilir (ayar açıksa).
+    //    Ancak o hafta 45 saat tamamlanmadıysa kesilir (ayar açıksa),
+    //    patron inisiyatifi işaretliyse kesilmez.
     //  - Pazar çalıştıysa ("Geldim"): ayrıca [pazarEkYevmiye] kadar ek yevmiye.
     //
     // YOL: Geldim / Yarım Gün girilen her gün (pazar dahil) 1 gün yol sayılır.
@@ -307,13 +308,27 @@ class Hesaplama {
     var yolGunu = 0;
     final otomatikTatil = <int>{};
     final kesilenPazar = <int>{};
+    final inisiyatifPazar = <int>{};
+    final haftalar = <int, HaftaSonucu>{};
     var isaretsiz = 0;
     var sonGunOdendi = false;
     for (var g = 1; g <= gunSayisi; g++) {
       final t = DateTime(ay.year, ay.month, g);
       final k = harita[_anahtar(t)];
       final pazar = t.weekday == DateTime.sunday;
-      final pazarKesilir = pazar && profil.pazarKesintisi && haftadaGelmedi(t);
+      var pazarKesilir = false;
+      if (pazar) {
+        final h = PuantajHesaplamaEngine.hafta(t, kayitBul,
+            gunlukSaat: profil.gunlukSaat);
+        haftalar[g] = h;
+        pazarKesilir = PuantajHesaplamaEngine.pazarKesilir(h,
+            kesintiAcik: profil.pazarKesintisi);
+        if (PuantajHesaplamaEngine.inisiyatifleVerildi(h,
+                kesintiAcik: profil.pazarKesintisi) &&
+            !(k == null && t.isAfter(bugunGun))) {
+          inisiyatifPazar.add(g);
+        }
+      }
       double ucretli = 0, prim = 0;
 
       if (k != null && yolSayilir(k.durum)) yolGunu++;
@@ -324,7 +339,7 @@ class Hesaplama {
         } else if (k == null && !haftadaCalisti(t) && !pazarKesilir) {
           isaretsiz++; // hiç çalışılmayan haftanın girilmemiş pazarı
         } else if (pazarKesilir) {
-          kesilenPazar.add(g); // mazeretsiz devamsızlık: hafta tatili ücreti yok
+          kesilenPazar.add(g); // 45 saat tamamlanmadı: hafta tatili ücreti yok
         } else {
           ucretli = 1;
           prim = 1;
@@ -429,10 +444,13 @@ class Hesaplama {
       kesintiGunu: kesintiGunu,
       odenenGun: odenenGun,
       temelUcret: temel,
-      mesaiUcreti: mesai * saatlik * profil.mesaiKatsayisi,
+      mesaiUcreti: PuantajHesaplamaEngine.mesaiUcreti(mesai, gunluk,
+          gunlukSaat: profil.gunlukSaat, katsayi: profil.mesaiKatsayisi),
       pazarCalisilanGun: pazarCalisma,
       pazarEkYevmiye: profil.pazarEkYevmiye,
       kesilenPazarGunleri: kesilenPazar,
+      inisiyatifPazarGunleri: inisiyatifPazar,
+      haftalar: haftalar,
       ekOdeme: ekOdeme,
       avans: avans,
       kesinti: kesinti,

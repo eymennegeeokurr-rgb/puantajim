@@ -380,10 +380,11 @@ class _ProfilFormuState extends State<ProfilFormu> {
             contentPadding: EdgeInsets.zero,
             value: _pazarKesintisi,
             onChanged: (v) => setState(() => _pazarKesintisi = v),
-            title: const Text('Mazeretsiz gelmediği haftanın pazarı kesilsin'),
+            title: const Text('Haftalık 45 saati tamamlamayanın pazarı kesilsin'),
             subtitle: Text(
-              'Haftada 45 saat (6 gün) çalışmayan, o hafta "Gelmedim" günü olan işçinin '
-              'hafta tatili ücreti ödenmez. İzin, rapor ve resmi tatil mazeret sayılır.',
+              'Pzt-Cmt toplamı 45 saati (6 gün × 7,5) bulmazsa o haftanın pazar ücreti '
+              'ödenmez. İzin, rapor ve resmi tatil 7,5 saat sayılır; fazla mesai eksiği kapatır. '
+              'Patron inisiyatifiyle pazar ücreti yine de verilebilir.',
               style: aciklamaStil,
             ),
           ),

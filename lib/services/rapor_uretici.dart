@@ -75,8 +75,13 @@ class RaporUretici {
             '${Bicim.sayi(o.odenenGun)} / 30'),
         if (o.kesilenPazar > 0)
           (
-            'Kesilen pazar (mazeretsiz devamsızlık olan hafta)',
+            'Kesilen pazar (haftalık 45 saat tamamlanmadı)',
             '${o.kesilenPazar} gün'
+          ),
+        if (o.inisiyatifPazarGunleri.isNotEmpty)
+          (
+            'Patron inisiyatifiyle verilen pazar',
+            '${o.inisiyatifPazarGunleri.length} gün'
           ),
         if (o.kesintiGunu > 0)
           (
@@ -332,7 +337,7 @@ class RaporUretici {
             pw.SizedBox(height: 6),
             pw.Text(
                 '* Girilmemiş Pazar günleri, o hafta çalışıldığı için ücretli hafta tatili sayıldı. '
-                '"Kesildi": o hafta mazeretsiz devamsızlık olduğu için hafta tatili ücreti ödenmedi.',
+                '"Kesildi": o hafta 45 saat tamamlanmadığı için hafta tatili ücreti ödenmedi.',
                 style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
           ],
           if (ozet.yolVar) ...[
@@ -624,6 +629,9 @@ class RaporUretici {
         return kesildi ? 'Pazar Çalıştı (tatil kesildi)' : 'Pazar Çalıştı';
       }
       if (kesildi) return 'Hafta Tatili (kesildi)';
+      if (buAy && ozet.inisiyatifPazarGunleri.contains(t.day)) {
+        return '${k.durum.raporEtiketi} (inisiyatif)';
+      }
       return k.durum.raporEtiketi;
     }
     if (kesildi) return 'Hafta Tatili (kesildi)';

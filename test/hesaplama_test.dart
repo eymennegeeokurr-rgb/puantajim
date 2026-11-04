@@ -3,6 +3,7 @@ import 'package:puantajim/models/gun_kaydi.dart';
 import 'package:puantajim/models/para_hareketi.dart';
 import 'package:puantajim/models/profil.dart';
 import 'package:puantajim/services/hesaplama.dart';
+import 'package:puantajim/services/puantaj_hesaplama_engine.dart';
 
 /// Hakediş hesap kurallarının testleri: `flutter test`
 ///
@@ -252,6 +253,69 @@ void main() {
       const p25 = Profil(adSoyad: 'Test', ucret: 45000, mesaiKatsayisi: 1.25);
       final o = hesapla(p25, 2026, 9, tamAy(2026, 9, mesai: {4: 2}));
       expect(o.mesaiUcreti, 500);
+    });
+  });
+
+  group('Haftalık 45 saat ve patron inisiyatifi', () {
+    test('Saatlik ücret günlük ÷ 7,5', () {
+      expect(PuantajHesaplamaEngine.saatlikUcret(1500), 200);
+      expect(p.saatlikUcret, 200);
+    });
+
+    test('Tam hafta 45 saat: pazar kesilmez', () {
+      final o = hesapla(p, 2026, 9, tamAy(2026, 9));
+      final h = o.haftalar[13]!;
+      expect(h.calisilanSaat, 45);
+      expect(h.gerekenSaat, 45);
+      expect(o.kesilenPazar, 0);
+    });
+
+    test('Yarım gün, mesaisiz: 41,25 saat → pazar kesilir', () {
+      final o = hesapla(p, 2026, 9, tamAy(2026, 9, degisen: {9: GunDurumu.yarimGun}));
+      expect(o.haftalar[13]!.calisilanSaat, 41.25);
+      expect(o.kesilenPazarGunleri, {13});
+      expect(o.odenenGun, 28.5); // 0,5 yarım + 1 pazar eksik
+    });
+
+    test('Yarım gün + 4 saat mesai: 45 saati geçer → pazar verilir', () {
+      final o = hesapla(p, 2026, 9,
+          tamAy(2026, 9, degisen: {9: GunDurumu.yarimGun}, mesai: {10: 4}));
+      expect(o.kesilenPazar, 0);
+      expect(o.odenenGun, 29.5);
+    });
+
+    test('Ücretli izin ve rapor 7,5 saat sayılır', () {
+      final o = hesapla(p, 2026, 9, tamAy(2026, 9,
+          degisen: {8: GunDurumu.ucretliIzin, 9: GunDurumu.raporlu}));
+      expect(o.haftalar[13]!.calisilanSaat, 45);
+      expect(o.kesilenPazar, 0);
+    });
+
+    test('Patron inisiyatifi: 45 saat dolmasa da pazar ücreti verilir', () {
+      final k = tamAy(2026, 9, degisen: {9: GunDurumu.gelmedi})
+          .map((g) => g.tarih == tarih(2026, 9, 13)
+              ? g.copyWith(pazarUcretiVer: true)
+              : g)
+          .toList();
+      final o = hesapla(p, 2026, 9, k);
+      expect(o.kesilenPazar, 0);
+      expect(o.inisiyatifPazarGunleri, {13});
+      expect(o.odenenGun, 29); // sadece gelmediği gün düştü
+    });
+
+    test('Girilmemiş gün 45 saati bozmaz (uyarı olarak kalır)', () {
+      final o = hesapla(p, 2026, 9, tamAy(2026, 9, bos: {9}));
+      expect(o.kesilenPazar, 0);
+      expect(o.isaretsizGun, 1);
+    });
+
+    test('Uyuşmazlık karşılaştırması', () {
+      final a = GunKaydi(tarih: tarih(2026, 9, 1), durum: GunDurumu.geldi);
+      final b = GunKaydi(tarih: tarih(2026, 9, 1), durum: GunDurumu.geldi, mesaiSaat: 2);
+      expect(PuantajHesaplamaEngine.karsilastir(a, a), isNull);
+      expect(PuantajHesaplamaEngine.karsilastir(a, b), Uyusmazlik.farkli);
+      expect(PuantajHesaplamaEngine.karsilastir(null, b), Uyusmazlik.patronGirmedi);
+      expect(PuantajHesaplamaEngine.karsilastir(null, null), isNull);
     });
   });
 

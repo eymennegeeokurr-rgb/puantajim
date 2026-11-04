@@ -5,10 +5,11 @@ import '../models/gun_kaydi.dart';
 import '../services/bicim.dart';
 import '../services/bulut.dart';
 import '../services/hesaplama.dart';
+import '../services/app_mode_controller.dart';
+import '../widgets/akilli_takvim_widget.dart';
 import '../widgets/ay_gezgini.dart';
 import '../widgets/hesabim_karti.dart';
 import '../widgets/kurulum_ipucu.dart';
-import 'ekip_sayfasi.dart';
 import 'gun_duzenle_sayfasi.dart';
 
 /// Ana ekran: bugün hızlı giriş + aylık takvim + ay özeti.
@@ -34,17 +35,17 @@ class TakvimSayfasi extends StatelessWidget {
           ),
         ),
         actions: [
-          // Yönetici hesabıysa "Ekibim" paneli
+          // Yönetici hesabıysa Patron moduna geçiş
           ValueListenableBuilder<bool>(
             valueListenable: Bulut.yonetici,
             builder: (context, yon, _) => yon
                 ? Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: FilledButton.tonalIcon(
-                      onPressed: () => Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const EkipSayfasi())),
+                      onPressed: () =>
+                          AppModeController.instance.ayarla(AppMode.patron),
                       icon: const Icon(Icons.groups),
-                      label: const Text('Ekibim'),
+                      label: const Text('Patron'),
                     ),
                   )
                 : const SizedBox.shrink(),
@@ -64,8 +65,7 @@ class TakvimSayfasi extends StatelessWidget {
               if (Bulut.oturum.value != null) const OnayBandi(),
               const AyGezgini(),
               if (buAy) _BugunKarti(tarih: Bicim.sadeceGun(simdi)),
-              _TakvimIzgarasi(ay: ay),
-              const _Lejant(),
+              _Takvim(ay: ay),
               _AyOzetiKarti(ay: ay),
             ],
           );
@@ -173,209 +173,33 @@ class _BugunKarti extends StatelessWidget {
 }
 
 // =============================================================================
-// Aylık takvim ızgarası
+// Aylık takvim (akıllı takvim + alt panel)
 // =============================================================================
 
-class _TakvimIzgarasi extends StatelessWidget {
+class _Takvim extends StatelessWidget {
   final DateTime ay;
-  const _TakvimIzgarasi({required this.ay});
-
-  static const _gunler = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+  const _Takvim({required this.ay});
 
   @override
   Widget build(BuildContext context) {
-    final renk = Theme.of(context).colorScheme;
-    final gunSayisi = DateTime(ay.year, ay.month + 1, 0).day;
-    final bosluk = DateTime(ay.year, ay.month, 1).weekday - 1; // Pazartesi = 0
-    final bugun = Bicim.sadeceGun(DateTime.now());
-
-    // Girilmemiş ama otomatik hafta tatili sayılan pazarlar (soluk "HT" gösterilir)
     final depo = Depo.instance;
     final profil = depo.profil;
+    final kayitlar = depo.ayKayitlari(ay);
     final ozet = profil == null
         ? null
         : Hesaplama.hesapla(
             profil: profil,
             ay: ay,
-            kayitlar: depo.ayKayitlari(ay),
+            kayitlar: kayitlar,
             hareketler: const [],
             oncekiAyKayitlari: depo.ayKayitlari(DateTime(ay.year, ay.month - 1)),
           );
-    final otoTatil = ozet?.otomatikTatilGunleri ?? const <int>{};
-    final kesilen = ozet?.kesilenPazarGunleri ?? const <int>{};
-    final pazarEtiketi = profil?.pazarEtiketi ?? '';
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                for (var i = 0; i < 7; i++)
-                  Expanded(
-                    child: Center(
-                      child: Text(
-                        _gunler[i],
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: i == 6 ? renk.error : renk.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            GridView.count(
-              crossAxisCount: 7,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 4,
-              crossAxisSpacing: 4,
-              childAspectRatio: 0.78,
-              children: [
-                for (var i = 0; i < bosluk; i++) const SizedBox.shrink(),
-                for (var g = 1; g <= gunSayisi; g++)
-                  _hucre(context, DateTime(ay.year, ay.month, g), bugun, renk,
-                      otoTatil.contains(g), kesilen.contains(g), pazarEtiketi),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _hucre(BuildContext context, DateTime t, DateTime bugun, ColorScheme renk,
-      bool otomatikTatil, bool pazarKesildi, String pazarEtiketi) {
-    final k = Depo.instance.gun(t);
-    final notVar = Depo.instance.notVar(t);
-    final bugunMu = t == bugun;
-    final gelecek = t.isAfter(bugun);
-    final pazar = t.weekday == DateTime.sunday;
-
-    final zemin = k != null
-        ? k.durum.renk.withValues(alpha: 0.18)
-        : otomatikTatil
-            ? GunDurumu.haftaTatili.renk.withValues(alpha: 0.08)
-            : renk.surfaceContainerHighest.withValues(alpha: gelecek ? 0.15 : 0.45);
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: () => gunDuzenle(context, t),
-      child: Container(
-        decoration: BoxDecoration(
-          color: zemin,
-          borderRadius: BorderRadius.circular(10),
-          border: bugunMu ? Border.all(color: renk.primary, width: 2) : null,
-        ),
-        child: Stack(
-          children: [
-            // Not yazılmış günlerde sağ üstte küçük not işareti
-            if (notVar)
-              const Positioned(
-                top: 3,
-                right: 3,
-                child: Icon(Icons.sticky_note_2, size: 10, color: Color(0xFFF9A825)),
-              ),
-            Center(
-              child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              '${t.day}',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: bugunMu ? FontWeight.w800 : FontWeight.w600,
-                color: gelecek
-                    ? renk.outline
-                    : (pazar && k == null && !otomatikTatil ? renk.error : null),
-              ),
-            ),
-            const SizedBox(height: 2),
-            if (pazarKesildi && (k == null || k.durum == GunDurumu.haftaTatili))
-              Text(
-                'HT✕',
-                style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    color: renk.error.withValues(alpha: 0.8)),
-              )
-            else if (k == null && otomatikTatil)
-              Text(
-                'HT',
-                style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: GunDurumu.haftaTatili.renk.withValues(alpha: 0.6)),
-              ),
-            if (k != null && !(pazarKesildi && k.durum == GunDurumu.haftaTatili))
-              Text(
-                pazar && k.durum == GunDurumu.geldi ? pazarEtiketi.replaceAll("'e ", ':') : k.durum.kisa,
-                style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: k.durum.renk),
-              ),
-            if (k != null && k.mesaiSaat > 0)
-              Text(
-                '+${Bicim.sayi(k.mesaiSaat)}',
-                style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF6A1B9A)),
-              ),
-          ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Lejant extends StatelessWidget {
-  const _Lejant();
-
-  @override
-  Widget build(BuildContext context) {
-    final renk = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 4,
-        children: [
-          for (final d in GunDurumu.values)
-            Text.rich(TextSpan(children: [
-              TextSpan(
-                  text: '${d.kisa} ',
-                  style: TextStyle(fontWeight: FontWeight.w800, color: d.renk)),
-              TextSpan(text: d.raporEtiketi),
-            ]), style: TextStyle(fontSize: 11, color: renk.onSurfaceVariant)),
-          Text.rich(TextSpan(children: [
-            const TextSpan(
-                text: '+2 ',
-                style: TextStyle(
-                    fontWeight: FontWeight.w800, color: Color(0xFF6A1B9A))),
-            const TextSpan(text: 'Mesai saati'),
-          ]), style: TextStyle(fontSize: 11, color: renk.onSurfaceVariant)),
-          Text.rich(TextSpan(children: [
-            TextSpan(
-                text: 'HT✕ ',
-                style: TextStyle(fontWeight: FontWeight.w800, color: renk.error)),
-            const TextSpan(text: 'Pazar kesildi'),
-          ]), style: TextStyle(fontSize: 11, color: renk.onSurfaceVariant)),
-          Text.rich(const TextSpan(children: [
-            WidgetSpan(
-                child: Icon(Icons.sticky_note_2, size: 11, color: Color(0xFFF9A825))),
-            TextSpan(text: ' Not var'),
-          ]), style: TextStyle(fontSize: 11, color: renk.onSurfaceVariant)),
-        ],
-      ),
+    return AkilliTakvimWidget(
+      ay: ay,
+      kayitlar: {for (final k in kayitlar) k.tarih: k},
+      ozet: ozet,
+      notVar: depo.notVar,
+      onGunSec: (t) => gunDuzenle(context, t),
     );
   }
 }
