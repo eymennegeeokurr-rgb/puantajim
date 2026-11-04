@@ -79,6 +79,9 @@ jobs:
       - name: Bağımlılıklar
         run: flutter pub get
 
+      - name: Kod analizi
+        run: flutter analyze --no-fatal-infos
+
       - name: Hesap testleri
         run: flutter test
 
