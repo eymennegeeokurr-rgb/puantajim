@@ -17,36 +17,37 @@ import '../widgets/mod_secici.dart';
 import 'gun_duzenle_sayfasi.dart';
 
 /// Puantaj sekmesi: özet ana sayfa  <->  takvim görünümü ("Puantajı Gör").
-class PuantajSekmesi extends StatefulWidget {
+class PuantajSekmesi extends StatelessWidget {
   final VoidCallback hakedisAc;
-  const PuantajSekmesi({super.key, required this.hakedisAc});
 
-  @override
-  State<PuantajSekmesi> createState() => _PuantajSekmesiState();
-}
+  /// true: takvim görünümü açık. Alt menüden "Puantaj"a tekrar basınca,
+  /// geri okuna veya telefonun geri tuşuna basınca ana sayfaya döner.
+  final ValueNotifier<bool> takvimAcik;
 
-class _PuantajSekmesiState extends State<PuantajSekmesi> {
-  bool _takvim = false;
+  const PuantajSekmesi({super.key, required this.hakedisAc, required this.takvimAcik});
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: !_takvim,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) setState(() => _takvim = false);
-      },
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 220),
-        child: _takvim
-            ? _TakvimGorunumu(
-                key: const ValueKey('takvim'),
-                geri: () => setState(() => _takvim = false),
-              )
-            : _OzetGorunumu(
-                key: const ValueKey('ozet'),
-                takvimAc: () => setState(() => _takvim = true),
-                hakedisAc: widget.hakedisAc,
-              ),
+    return ValueListenableBuilder<bool>(
+      valueListenable: takvimAcik,
+      builder: (context, takvim, _) => PopScope(
+        canPop: !takvim,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) takvimAcik.value = false;
+        },
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          child: takvim
+              ? _TakvimGorunumu(
+                  key: const ValueKey('takvim'),
+                  geri: () => takvimAcik.value = false,
+                )
+              : _OzetGorunumu(
+                  key: const ValueKey('ozet'),
+                  takvimAc: () => takvimAcik.value = true,
+                  hakedisAc: hakedisAc,
+                ),
+        ),
       ),
     );
   }
@@ -123,16 +124,28 @@ class _OzetGorunumuState extends State<_OzetGorunumu> {
           Text('Puantaj'),
         ]),
         actions: [
+          // Ekibim: yönetici hesabında veya patron modu bir kez açıldıysa hep görünür
           ListenableBuilder(
-            listenable: AppModeController.instance.dinleyici,
-            builder: (context, _) => AppModeController.instance.patronAcildi &&
-                    AppModeController.instance.patronKullanilabilir
-                ? IconButton(
-                    tooltip: 'Patron moduna geç',
-                    icon: const Icon(Icons.groups_outlined),
-                    onPressed: () => patronOl(context),
-                  )
-                : const SizedBox.shrink(),
+            listenable: Listenable.merge(
+                [AppModeController.instance.dinleyici, Bulut.yonetici]),
+            builder: (context, _) {
+              final m = AppModeController.instance;
+              final goster =
+                  m.patronKullanilabilir && (m.patronAcildi || Bulut.yonetici.value);
+              if (!goster) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: FilledButton.tonalIcon(
+                  onPressed: () => patronOl(context),
+                  icon: const Icon(Icons.groups_outlined, size: 20),
+                  label: const Text('Ekibim'),
+                  style: FilledButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                ),
+              );
+            },
           ),
           StreamBuilder<List<Istek>>(
             stream: _istekler,
@@ -536,8 +549,12 @@ class _TakvimGorunumu extends StatelessWidget {
     final depo = Depo.instance;
     return Scaffold(
       appBar: AppBar(
-        titleSpacing: 20,
         automaticallyImplyLeading: false,
+        leading: IconButton(
+          tooltip: 'Ana sayfaya dön',
+          icon: const Icon(Icons.arrow_back),
+          onPressed: geri,
+        ),
         title: const Text('Puantaj'),
         actions: [
           IconButton(

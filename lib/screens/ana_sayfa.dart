@@ -20,6 +20,7 @@ class AnaSayfa extends StatefulWidget {
 
 class _AnaSayfaState extends State<AnaSayfa> with WidgetsBindingObserver {
   int _secili = 0;
+  final _takvimAcik = ValueNotifier<bool>(false);
 
   @override
   void initState() {
@@ -37,6 +38,7 @@ class _AnaSayfaState extends State<AnaSayfa> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _takvimAcik.dispose();
     super.dispose();
   }
 
@@ -46,12 +48,16 @@ class _AnaSayfaState extends State<AnaSayfa> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) Bulut.senkronla();
   }
 
-  void _git(int i) => setState(() => _secili = i);
+  void _git(int i) {
+    // Puantaj'a tekrar basınca (veya Hakediş'ten geri dönünce) ana sayfa açılsın
+    if (i == 0 && (_secili == 0 || _secili == 3)) _takvimAcik.value = false;
+    setState(() => _secili = i);
+  }
 
   @override
   Widget build(BuildContext context) {
     final sayfalar = <Widget>[
-      PuantajSekmesi(hakedisAc: () => _git(3)),
+      PuantajSekmesi(hakedisAc: () => _git(3), takvimAcik: _takvimAcik),
       const HareketlerSayfasi(),
       const NotlarSayfasi(),
       RaporSayfasi(geri: () => _git(0)),
