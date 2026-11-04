@@ -12,14 +12,19 @@ import '../services/hesaplama.dart';
 import '../services/puantaj_hesaplama_engine.dart';
 import '../widgets/ay_gezgini.dart';
 import 'ayarlar_sayfasi.dart';
+import 'gun_duzenle_sayfasi.dart';
 import 'patron_personel_sayfasi.dart';
 
 typedef IsciVerisi = ({VeriPaketi veri, int zaman});
 
-/// PATRON PANELİ: ekip listesi, "Tüm Ekibi Geldi İşaretle", uyuşmazlıklar.
+const _turuncu = Color(0xFFEF6C00);
+
+/// PATRON MODU ana ekranı — üç sekme:
+///   Yoklama : seçilen gün için ekip listesi, tek dokunuşla Geldi / Gelmedi
+///   Hakediş : ay toplamı ve kişi kişi ödenecek tutar (patron puantajına göre)
+///   Ekip    : personel ekleme, onay bekleyenler
 ///
-/// İşçilerin kendi puantajı (kodla eşleşen, onay veren) sadece okunur.
-/// Hakedişi belirleyen, patronun burada girdiği "Patron Puantajı"dır.
+/// İşçilerin kendi puantajı salt okunur; hakedişi patronun girdiği günler belirler.
 class PatronDashboardScreen extends StatefulWidget {
   const PatronDashboardScreen({super.key});
 
@@ -32,19 +37,19 @@ class _PatronDashboardScreenState extends State<PatronDashboardScreen>
   final _patron = PatronDepo.instance;
   final _seciliAy = Depo.instance.seciliAy;
 
-  /// uid -> işçinin buluttaki verisi (null: veri yok / yüklenemedi)
   final Map<String, IsciVerisi?> _veriler = {};
   final Set<String> _yukleniyor = {};
   late final Stream<List<Istek>> _akis = Bulut.gidenIstekler();
 
-  /// Toplu giriş yapılacak gün
-  DateTime _topluGun = Bicim.sadeceGun(DateTime.now());
+  int _sekme = 0;
+  DateTime _gun = Bicim.sadeceGun(DateTime.now());
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _seciliAy.addListener(_ayDegisti);
+    _patron.ayHazirla(_gun);
     _patron.ayHazirla(_seciliAy.value);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final yeni = await Guncelleme.kontrolEt();
@@ -67,17 +72,7 @@ class _PatronDashboardScreenState extends State<PatronDashboardScreen>
     }
   }
 
-  void _ayDegisti() {
-    final ay = _seciliAy.value;
-    _patron.ayHazirla(ay);
-    // Toplu giriş günü seçili ayın içinde kalsın
-    if (_topluGun.year != ay.year || _topluGun.month != ay.month) {
-      final bugun = Bicim.sadeceGun(DateTime.now());
-      setState(() => _topluGun = (bugun.year == ay.year && bugun.month == ay.month)
-          ? bugun
-          : DateTime(ay.year, ay.month, 1));
-    }
-  }
+  void _ayDegisti() => _patron.ayHazirla(_seciliAy.value);
 
   Future<void> _yukle(String uid, {bool zorla = false}) async {
     if (_yukleniyor.contains(uid) || (!zorla && _veriler.containsKey(uid))) return;
@@ -93,6 +88,7 @@ class _PatronDashboardScreenState extends State<PatronDashboardScreen>
   }
 
   Future<void> _hepsiniYenile(List<Istek> onaylilar) async {
+    await _patron.yenile(_gun);
     await _patron.yenile(_seciliAy.value);
     for (final i in onaylilar) {
       await _yukle(i.calisanUid, zorla: true);
@@ -122,85 +118,115 @@ class _PatronDashboardScreenState extends State<PatronDashboardScreen>
     );
   }
 
-  /// Bugüne kadarki uyuşmayan gün sayısı (farklı + patronun girmediği)
-  int _uyusmazlik(String uid, DateTime ay) {
+  GunKaydi? _isciGunu(String uid, DateTime t) {
     final v = _veriler[uid];
-    if (v == null) return 0;
-    final isci = {for (final k in v.veri.ayKayitlari(ay)) k.tarih: k};
-    final patron = _patron.isciAyi(uid, ay);
-    final bugun = Bicim.sadeceGun(DateTime.now());
+    if (v == null) return null;
+    final a = Bicim.anahtar(t);
+    for (final k in v.veri.gunler) {
+      if (k.tarih == a) return k;
+    }
+    return null;
+  }
+
+  bool _gunFarkli(String uid, DateTime t) {
+    if (t.isAfter(Bicim.sadeceGun(DateTime.now()))) return false;
+    final u = PuantajHesaplamaEngine.karsilastir(_patron.gun(uid, t), _isciGunu(uid, t));
+    return u == Uyusmazlik.farkli || u == Uyusmazlik.patronGirmedi;
+  }
+
+  int _ayFarkSayisi(String uid, DateTime ay) {
     final gunSayisi = DateTime(ay.year, ay.month + 1, 0).day;
     var n = 0;
     for (var g = 1; g <= gunSayisi; g++) {
-      final t = DateTime(ay.year, ay.month, g);
-      if (t.isAfter(bugun)) break;
-      final a = Bicim.anahtar(t);
-      final u = PuantajHesaplamaEngine.karsilastir(patron[a], isci[a]);
-      if (u == Uyusmazlik.farkli || u == Uyusmazlik.patronGirmedi) n++;
+      if (_gunFarkli(uid, DateTime(ay.year, ay.month, g))) n++;
     }
     return n;
   }
 
   // ---------------------------------------------------------------------------
-  // Toplu giriş
+  // Yoklama işlemleri
   // ---------------------------------------------------------------------------
 
-  Future<void> _topluGunSec() async {
-    final ay = _seciliAy.value;
-    final son = DateTime(ay.year, ay.month + 1, 0);
+  void _gunDegistir(DateTime t) {
+    final yeni = Bicim.sadeceGun(t);
+    if (yeni.isAfter(Bicim.sadeceGun(DateTime.now()))) return;
+    setState(() => _gun = yeni);
+    _patron.ayHazirla(yeni);
+  }
+
+  Future<void> _gunSec() async {
     final bugun = Bicim.sadeceGun(DateTime.now());
     final secim = await showDatePicker(
       context: context,
-      initialDate: _topluGun,
-      firstDate: DateTime(ay.year, ay.month, 1),
-      lastDate: son.isAfter(bugun) && !bugun.isBefore(DateTime(ay.year, ay.month, 1))
-          ? bugun
-          : son,
-      helpText: 'Toplu giriş günü',
+      initialDate: _gun,
+      firstDate: DateTime(bugun.year - 1, 1, 1),
+      lastDate: bugun,
+      helpText: 'Yoklama günü',
     );
-    if (secim != null) setState(() => _topluGun = secim);
+    if (secim != null) _gunDegistir(secim);
   }
 
-  Future<void> _tumEkibiGeldi(List<Istek> onaylilar) async {
-    final gun = _topluGun;
-    final bos = onaylilar.where((i) => _patron.gun(i.calisanUid, gun) == null).toList();
-    if (onaylilar.isEmpty) {
-      _mesaj('Önce ekibinize personel ekleyin');
-      return;
+  Future<void> _hizliKaydet(String uid, GunDurumu d) async {
+    final mevcut = _patron.gun(uid, _gun);
+    if (mevcut?.durum == d) return;
+    final GunKaydi yeni;
+    if (mevcut != null && d.mesaiGirilebilir) {
+      yeni = mevcut.copyWith(durum: d); // saat, mesai, not korunur
+    } else {
+      yeni = GunKaydi(
+        tarih: Bicim.anahtar(_gun),
+        durum: d,
+        not: mevcut?.not,
+        pazarUcretiVer: mevcut?.pazarUcretiVer ?? false,
+      );
     }
-    if (bos.isEmpty) {
-      _mesaj('${Bicim.gunAy(gun)} için tüm ekibin kaydı zaten girilmiş');
-      return;
-    }
-    final onay = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        icon: const Icon(Icons.groups),
-        title: const Text('Tüm ekip "Geldi" işaretlensin mi?'),
-        content: Text(
-          '${Bicim.gunAy(gun)}: ${bos.length} kişiye "Geldi" yazılacak.'
-          '${bos.length < onaylilar.length ? '\n${onaylilar.length - bos.length} kişinin kaydı zaten var, değiştirilmeyecek.' : ''}',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('İşaretle')),
-        ],
-      ),
+    await _patron.gunKaydet(uid, yeni);
+  }
+
+  Future<void> _detayliGir(Istek i) async {
+    final ozet = _ozet(i.calisanUid, DateTime(_gun.year, _gun.month));
+    await gunPaneliAc(
+      context,
+      tarih: _gun,
+      mevcut: _patron.gun(i.calisanUid, _gun),
+      isciKaydi: _isciGunu(i.calisanUid, _gun),
+      profil: _veriler[i.calisanUid]?.veri.profil,
+      hafta: ozet?.haftalar[_gun.day],
+      patronModu: true,
+      kimin: i.calisanAd,
+      kaydet: (k) => _patron.gunKaydet(i.calisanUid, k),
+      sil: () => _patron.gunSil(i.calisanUid, Bicim.anahtar(_gun)),
     );
-    if (onay != true) return;
-    final yazilan = await _patron.topluGeldi(bos.map((i) => i.calisanUid), gun);
+  }
+
+  Future<void> _hepsiGeldi(List<Istek> onaylilar) async {
+    final gun = _gun;
+    final bos = onaylilar
+        .where((i) => _patron.gun(i.calisanUid, gun) == null)
+        .map((i) => i.calisanUid)
+        .toList();
+    if (bos.isEmpty) return;
+    final yazilan = await _patron.topluGeldi(bos, gun);
     if (!mounted) return;
     _mesaj(
       '${yazilan.length} kişi "Geldi" işaretlendi',
-      aksiyon: SnackBarAction(
-        label: 'Geri al',
-        onPressed: () => _patron.topluSil(yazilan, gun),
-      ),
+      aksiyon: SnackBarAction(label: 'Geri al', onPressed: () => _patron.topluSil(yazilan, gun)),
     );
   }
 
+  void _detayAc(Istek i) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => PatronPersonelSayfasi(
+        ad: i.calisanAd,
+        uid: i.calisanUid,
+        ilkVeri: _veriler[i.calisanUid],
+        veriYenilendi: (v) => setState(() => _veriler[i.calisanUid] = v),
+      ),
+    ));
+  }
+
   // ---------------------------------------------------------------------------
-  // Personel ekleme / çıkarma
+  // Ekip işlemleri
   // ---------------------------------------------------------------------------
 
   Future<void> _personelEkle() async {
@@ -242,8 +268,8 @@ class _PatronDashboardScreenState extends State<PatronDashboardScreen>
         builder: (ctx) => AlertDialog(
           icon: const Icon(Icons.person),
           title: Text(kisi.adSoyad.isEmpty ? 'İsimsiz kullanıcı' : kisi.adSoyad),
-          content: Text('${Bulut.kodDuzelt(kod)} kodlu kişiye takip isteği gönderilsin mi?\n\n'
-              'Kişi uygulamasında isteği onaylayınca puantajını görebileceksiniz.'),
+          content: Text('${Bulut.kodDuzelt(kod)} kodlu kişiye ekibinize katılma isteği gönderilsin mi?\n\n'
+              'Kişi kendi telefonunda onaylayınca ekibinizde görünür.'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
             FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('İstek Gönder')),
@@ -262,9 +288,9 @@ class _PatronDashboardScreenState extends State<PatronDashboardScreen>
     final onay = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('${i.calisanAd} listeden çıkarılsın mı?'),
-        content: const Text('Bu kişinin verilerini artık göremezsiniz. Girdiğiniz patron '
-            'puantajı silinmez. Tekrar eklemek için kodu yeniden girmeniz ve onay almanız gerekir.'),
+        title: Text('${i.calisanAd} ekipten çıkarılsın mı?'),
+        content: const Text('Bu kişinin puantajını artık göremezsiniz. Girdiğiniz yoklama '
+            'kayıtları silinmez. Tekrar eklemek için kodu yeniden girmeniz ve onay almanız gerekir.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Çıkar')),
@@ -274,29 +300,16 @@ class _PatronDashboardScreenState extends State<PatronDashboardScreen>
     if (onay == true) await Bulut.istekSil(i);
   }
 
-  void _detayAc(Istek i) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => PatronPersonelSayfasi(
-        ad: i.calisanAd,
-        uid: i.calisanUid,
-        ilkVeri: _veriler[i.calisanUid],
-        veriYenilendi: (v) => setState(() => _veriler[i.calisanUid] = v),
-      ),
-    ));
-  }
-
   // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    final renk = Theme.of(context).colorScheme;
     return StreamBuilder<List<Istek>>(
       stream: _akis,
       builder: (context, snap) {
         final liste = snap.data ?? const <Istek>[];
-        final onaylilar = liste.where((i) => i.onaylandi).toList();
-        final bekleyen = liste.where((i) => i.bekliyor).toList();
-        final reddeden = liste.where((i) => i.reddedildi).toList();
+        final onaylilar = liste.where((i) => i.onaylandi).toList()
+          ..sort((a, b) => a.calisanAd.toLowerCase().compareTo(b.calisanAd.toLowerCase()));
         for (final i in onaylilar) {
           _yukle(i.calisanUid);
         }
@@ -306,12 +319,14 @@ class _PatronDashboardScreenState extends State<PatronDashboardScreen>
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Patron Paneli'),
+                Text(const ['Yoklama', 'Hakediş', 'Ekibim'][_sekme]),
                 ValueListenableBuilder<String>(
                   valueListenable: _patron.durum,
                   builder: (_, d, __) => Text(
-                    d.isEmpty ? (Bulut.oturum.value?.adSoyad ?? '') : d,
+                    d.isEmpty ? 'Patron modu' : 'Patron modu • $d',
                     style: Theme.of(context).textTheme.bodySmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -327,317 +342,359 @@ class _PatronDashboardScreenState extends State<PatronDashboardScreen>
                   if (s == 'bireysel') {
                     AppModeController.instance.ayarla(AppMode.bireysel);
                   } else if (s == 'ayarlar') {
-                    Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const AyarlarSayfasi()));
+                    Navigator.of(context)
+                        .push(MaterialPageRoute(builder: (_) => const AyarlarSayfasi()));
                   }
                 },
                 itemBuilder: (_) => const [
-                  PopupMenuItem(
-                    value: 'bireysel',
-                    child: ListTile(
-                      leading: Icon(Icons.person_outline),
-                      title: Text('Bireysel moda geç'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'ayarlar',
-                    child: ListTile(
-                      leading: Icon(Icons.settings_outlined),
-                      title: Text('Profil ve Ayarlar'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ),
+                  PopupMenuItem(value: 'bireysel', child: Text('Bireysel moda geç')),
+                  PopupMenuItem(value: 'ayarlar', child: Text('Profil ve Ayarlar')),
                 ],
               ),
             ],
           ),
-          floatingActionButton: FloatingActionButton.extended(
-            onPressed: _personelEkle,
-            icon: const Icon(Icons.person_add_alt_1),
-            label: const Text('Personel Ekle'),
-          ),
           body: ListenableBuilder(
             listenable: Listenable.merge([_patron, _seciliAy]),
             builder: (context, _) {
-              final ay = _seciliAy.value;
-              double toplam = 0, banka = 0, elden = 0;
-              final uyusmazliklar = <(Istek, int)>[];
-              for (final i in onaylilar) {
-                final o = _ozet(i.calisanUid, ay);
-                if (o != null) {
-                  toplam += o.net;
-                  banka += o.bankaVar ? o.bankaHakedis : 0;
-                  elden += o.elden;
-                }
-                final n = _uyusmazlik(i.calisanUid, ay);
-                if (n > 0) uyusmazliklar.add((i, n));
-              }
-
+              final hata = snap.hasError
+                  ? Card(
+                      color: Theme.of(context).colorScheme.errorContainer,
+                      child: const ListTile(
+                        leading: Icon(Icons.cloud_off),
+                        title: Text('Ekip listesi alınamadı'),
+                        subtitle: Text('İnternet bağlantınızı kontrol edin.'),
+                      ),
+                    )
+                  : null;
+              final yukleniyor = snap.connectionState == ConnectionState.waiting && !snap.hasData;
               return RefreshIndicator(
                 onRefresh: () => _hepsiniYenile(onaylilar),
-                child: ListView(
-                  padding: const EdgeInsets.only(bottom: 96),
-                  children: [
-                    const AyGezgini(),
-                    if (snap.connectionState == ConnectionState.waiting && !snap.hasData)
-                      const Padding(
-                        padding: EdgeInsets.all(40),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    if (snap.hasError)
-                      Card(
-                        color: renk.errorContainer,
-                        child: ListTile(
-                          leading: const Icon(Icons.cloud_off),
-                          title: const Text('Ekip listesi alınamadı'),
-                          subtitle: Text('İnternet bağlantınızı kontrol edin.\n${snap.error}'),
-                        ),
-                      ),
-
-                    // ---- Toplam
-                    if (onaylilar.isNotEmpty)
-                      Card(
-                        color: renk.primaryContainer,
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(children: [
-                            Text('${onaylilar.length} personel • ${Bicim.ay(ay)} (patron puantajı)',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: renk.onPrimaryContainer)),
-                            const SizedBox(height: 4),
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(Bicim.para(toplam),
-                                  style: TextStyle(
-                                      fontSize: 26,
-                                      fontWeight: FontWeight.w800,
-                                      color: renk.onPrimaryContainer)),
-                            ),
-                            Text('Banka ${Bicim.para(banka)}  •  Elden ${Bicim.para(elden)}',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(fontSize: 12.5, color: renk.onPrimaryContainer)),
-                          ]),
-                        ),
-                      ),
-
-                    // ---- Toplu giriş
-                    if (onaylilar.isNotEmpty) _topluKarti(onaylilar, renk),
-
-                    // ---- Uyuşmazlıklar
-                    if (uyusmazliklar.isNotEmpty) _uyusmazlikKarti(uyusmazliklar),
-
-                    if (liste.isEmpty && snap.hasData) _bosEkip(renk),
-
-                    // ---- Ekip
-                    if (onaylilar.isNotEmpty) _baslik('Ekibim', renk),
-                    for (final i in onaylilar) _personelKarti(i, ay, renk),
-
-                    // ---- Bekleyenler
-                    if (bekleyen.isNotEmpty) _baslik('Onay bekleyenler', renk),
-                    for (final i in bekleyen)
-                      Card(
-                        child: ListTile(
-                          leading: const CircleAvatar(child: Icon(Icons.hourglass_top)),
-                          title: Text(i.calisanAd),
-                          subtitle: Text('İstek: ${Bicim.kisaTarih(DateTime.fromMillisecondsSinceEpoch(i.tarih))} • henüz onaylamadı'),
-                          trailing: IconButton(
-                            tooltip: 'İsteği geri çek',
-                            icon: const Icon(Icons.close),
-                            onPressed: () => _listedenCikar(i),
-                          ),
-                        ),
-                      ),
-
-                    // ---- Reddedenler
-                    if (reddeden.isNotEmpty) _baslik('Reddedenler', renk),
-                    for (final i in reddeden)
-                      Card(
-                        child: ListTile(
-                          leading: CircleAvatar(
-                              backgroundColor: renk.errorContainer,
-                              child: Icon(Icons.block, color: renk.onErrorContainer)),
-                          title: Text(i.calisanAd),
-                          subtitle: const Text('Takip isteğini reddetti'),
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (s) async {
-                              if (s == 'tekrar') {
-                                await Bulut.istekGonder(
-                                    calisanUid: i.calisanUid, calisanAd: i.calisanAd);
-                              } else {
-                                await _listedenCikar(i);
-                              }
-                            },
-                            itemBuilder: (_) => const [
-                              PopupMenuItem(value: 'tekrar', child: Text('Tekrar iste')),
-                              PopupMenuItem(value: 'sil', child: Text('Listeden çıkar')),
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+                child: switch (_sekme) {
+                  0 => _yoklamaSekmesi(onaylilar, hata, yukleniyor),
+                  1 => _hakedisSekmesi(onaylilar, hata),
+                  _ => _ekipSekmesi(liste, hata),
+                },
               );
             },
+          ),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _sekme,
+            onDestinationSelected: (i) => setState(() => _sekme = i),
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.fact_check_outlined),
+                selectedIcon: Icon(Icons.fact_check),
+                label: 'Yoklama',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.receipt_long_outlined),
+                selectedIcon: Icon(Icons.receipt_long),
+                label: 'Hakediş',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.groups_outlined),
+                selectedIcon: Icon(Icons.groups),
+                label: 'Ekip',
+              ),
+            ],
           ),
         );
       },
     );
   }
 
-  Widget _topluKarti(List<Istek> onaylilar, ColorScheme renk) {
-    final bos = onaylilar.where((i) => _patron.gun(i.calisanUid, _topluGun) == null).length;
-    final bugunMu = _topluGun == Bicim.sadeceGun(DateTime.now());
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(children: [
-              const Icon(Icons.bolt, size: 20),
-              const SizedBox(width: 6),
-              const Expanded(
-                child: Text('Hızlı puantaj',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-              ),
-              TextButton.icon(
-                onPressed: _topluGunSec,
-                icon: const Icon(Icons.event, size: 18),
-                label: Text(bugunMu ? 'Bugün' : Bicim.gunAy(_topluGun),
-                    overflow: TextOverflow.ellipsis),
-              ),
-            ]),
-            Text(
-              bos == 0
-                  ? 'Bu gün için tüm ekibin kaydı girilmiş.'
-                  : '$bos kişinin bu günü henüz girilmemiş.',
-              style: TextStyle(fontSize: 12.5, color: renk.onSurfaceVariant),
+  // ===========================================================================
+  // YOKLAMA
+  // ===========================================================================
+
+  Widget _yoklamaSekmesi(List<Istek> onaylilar, Widget? hata, bool yukleniyor) {
+    final renk = Theme.of(context).colorScheme;
+    final bugun = Bicim.sadeceGun(DateTime.now());
+    final bugunMu = _gun == bugun;
+    var geldi = 0, gelmedi = 0, bos = 0;
+    for (final i in onaylilar) {
+      final k = _patron.gun(i.calisanUid, _gun);
+      if (k == null) {
+        bos++;
+      } else if (k.durum == GunDurumu.geldi || k.durum == GunDurumu.yarimGun) {
+        geldi++;
+      } else {
+        gelmedi++;
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        // ---- Gün seçici
+        Container(
+          margin: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+          decoration: BoxDecoration(
+            color: renk.primaryContainer,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(children: [
+            IconButton(
+              tooltip: 'Önceki gün',
+              icon: const Icon(Icons.chevron_left),
+              color: renk.onPrimaryContainer,
+              onPressed: () => _gunDegistir(_gun.subtract(const Duration(days: 1))),
             ),
-            const SizedBox(height: 10),
-            FilledButton.icon(
-              onPressed: bos == 0 ? null : () => _tumEkibiGeldi(onaylilar),
+            Expanded(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: _gunSec,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Column(children: [
+                    Text(bugunMu ? 'Bugün' : Bicim.gunAdi(_gun),
+                        style: TextStyle(fontSize: 12, color: renk.onPrimaryContainer)),
+                    Text(Bicim.gunAy(_gun),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: renk.onPrimaryContainer)),
+                  ]),
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Sonraki gün',
+              icon: const Icon(Icons.chevron_right),
+              color: renk.onPrimaryContainer,
+              onPressed: bugunMu ? null : () => _gunDegistir(_gun.add(const Duration(days: 1))),
+            ),
+          ]),
+        ),
+        if (hata != null) hata,
+        if (yukleniyor)
+          const Padding(
+            padding: EdgeInsets.all(40),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        if (!yukleniyor && onaylilar.isEmpty)
+          _bosDurum(
+            Icons.groups_outlined,
+            'Ekibinizde henüz kimse yok',
+            'Ekip sekmesinden elemanlarınızın kodunu girerek ekleyin.',
+            buton: FilledButton.icon(
+              onPressed: () => setState(() => _sekme = 2),
+              icon: const Icon(Icons.person_add_alt_1),
+              label: const Text('Ekip sekmesine git'),
+            ),
+          ),
+
+        if (onaylilar.isNotEmpty) ...[
+          // ---- Hepsi geldi + sayaç
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+            child: FilledButton.icon(
+              onPressed: bos == 0 ? null : () => _hepsiGeldi(onaylilar),
               icon: const Icon(Icons.done_all),
-              label: const Text('Tüm Ekibi Geldi İşaretle'),
+              label: Text(bos == 0 ? 'Herkes girildi' : 'Hepsi geldi ($bos kişi)'),
               style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _uyusmazlikKarti(List<(Istek, int)> l) {
-    const turuncu = Color(0xFFEF6C00);
-    final toplam = l.fold<int>(0, (a, e) => a + e.$2);
-    return Card(
-      color: turuncu.withValues(alpha: 0.10),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: turuncu.withValues(alpha: 0.5)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.compare_arrows, color: turuncu),
-              title: Text('$toplam gün uyuşmuyor',
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
-              subtitle: const Text(
-                  'İşçinin girdiği ile sizin puantajınız farklı veya siz henüz girmediniz.'),
-            ),
-            for (final e in l)
-              ListTile(
-                dense: true,
-                contentPadding: const EdgeInsets.only(left: 72, right: 16),
-                title: Text(e.$1.calisanAd, maxLines: 1, overflow: TextOverflow.ellipsis),
-                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Text('${e.$2} gün',
-                      style: const TextStyle(color: turuncu, fontWeight: FontWeight.w700)),
-                  const Icon(Icons.chevron_right),
-                ]),
-                onTap: () => _detayAc(e.$1),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _bosEkip(ColorScheme renk) => Padding(
-        padding: const EdgeInsets.all(36),
-        child: Column(children: [
-          Icon(Icons.groups_outlined, size: 60, color: renk.outline),
-          const SizedBox(height: 12),
-          const Text('Henüz personel eklenmedi', textAlign: TextAlign.center),
-          const SizedBox(height: 6),
-          Text(
-            'Elemanlarınızdan Profil sekmesindeki kullanıcı kodunu isteyin, '
-            '"Personel Ekle" ile girin. Eleman onaylayınca burada görünür.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12.5, color: renk.onSurfaceVariant),
           ),
-        ]),
-      );
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 2, 18, 6),
+            child: Text(
+              'Geldi $geldi  •  Gelmedi/izinli $gelmedi  •  Girilmedi $bos',
+              style: TextStyle(fontSize: 12.5, color: renk.onSurfaceVariant),
+            ),
+          ),
+          for (final i in onaylilar) _yoklamaSatiri(i, renk),
+        ],
+      ],
+    );
+  }
 
-  Widget _baslik(String t, ColorScheme renk) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 18, 16, 6),
-        child: Text(t, style: TextStyle(color: renk.primary, fontWeight: FontWeight.w700)),
-      );
+  Widget _yoklamaSatiri(Istek i, ColorScheme renk) {
+    final k = _patron.gun(i.calisanUid, _gun);
+    final farkli = _gunFarkli(i.calisanUid, _gun);
+    final isci = _isciGunu(i.calisanUid, _gun);
+    final pazar = _gun.weekday == DateTime.sunday;
 
-  Widget _personelKarti(Istek i, DateTime ay, ColorScheme renk) {
-    final yuklendi = _veriler.containsKey(i.calisanUid);
-    final v = _veriler[i.calisanUid];
-    final o = _ozet(i.calisanUid, ay);
-    final gorev = v?.veri.profil?.gorev ?? '';
-    final n = _uyusmazlik(i.calisanUid, ay);
-    final bugun = _patron.gun(i.calisanUid, Bicim.sadeceGun(DateTime.now()));
-    final girilen = _patron.isciAyi(i.calisanUid, ay).length;
-
-    String altYazi;
-    if (!yuklendi) {
-      altYazi = 'Yükleniyor...';
-    } else if (v == null || v.veri.profil == null) {
-      altYazi = 'Maaş bilgisi yok • $girilen gün girdiniz';
-    } else {
-      altYazi = '${Bicim.sayi(o!.odenenGun)} gün • ${Bicim.sayi(o.mesaiSaat)} sa mesai'
-          '${o.kesilenPazar > 0 ? ' • ${o.kesilenPazar} pazar kesik' : ''}';
+    String durumYazisi() {
+      if (k == null) return 'Girilmedi';
+      final e = pazar && k.durum == GunDurumu.geldi ? 'Pazar çalıştı' : k.durum.etiket;
+      return k.mesaiSaat > 0 ? '$e • +${Bicim.sayi(k.mesaiSaat)} sa' : e;
     }
-    final basHarf = i.calisanAd
-        .trim()
-        .split(RegExp(r'\s+'))
-        .take(2)
-        .map((s) => s.isEmpty ? '' : s[0])
-        .join()
-        .toUpperCase();
 
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 6, 6, 6),
+        child: LayoutBuilder(builder: (context, c) {
+          final dar = c.maxWidth < 380;
+          return Row(children: [
+            Expanded(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => _detayAc(i),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: Row(children: [
+                    _avatar(i.calisanAd, renk, farkli: farkli),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(i.calisanAd,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.w600)),
+                          Text(durumYazisi(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: k == null ? renk.outline : k.durum.renk)),
+                          if (farkli && isci != null)
+                            Text('İşçi: ${isci.durum.etiket}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 11.5, color: _turuncu)),
+                        ],
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            ),
+            _durumDugmesi(i.calisanUid, GunDurumu.geldi, k, dar),
+            const SizedBox(width: 4),
+            _durumDugmesi(i.calisanUid, GunDurumu.gelmedi, k, dar),
+            IconButton(
+              tooltip: 'Diğer (izin, rapor, mesai...)',
+              icon: const Icon(Icons.more_horiz),
+              onPressed: () => _detayliGir(i),
+            ),
+          ]);
+        }),
+      ),
+    );
+  }
+
+  Widget _durumDugmesi(String uid, GunDurumu d, GunKaydi? k, bool dar) {
+    final secili = k?.durum == d;
+    final renk = Theme.of(context).colorScheme;
+    final koyu = Theme.of(context).brightness == Brightness.dark;
+    final ikon = d == GunDurumu.geldi ? Icons.check : Icons.close;
+    final yazi = d == GunDurumu.geldi ? 'Geldi' : 'Gelmedi';
+    final zemin = secili ? d.renk : d.pastel(koyu: koyu, zemin: renk.surface);
+    final on = secili ? Colors.white : d.renk;
+    return Tooltip(
+      message: yazi,
+      child: Material(
+        color: zemin,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => _hizliKaydet(uid, d),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: dar ? 10 : 12, vertical: 10),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(ikon, size: 18, color: on),
+              if (!dar) ...[
+                const SizedBox(width: 4),
+                Text(yazi,
+                    style: TextStyle(color: on, fontWeight: FontWeight.w600, fontSize: 13)),
+              ],
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // HAKEDİŞ
+  // ===========================================================================
+
+  Widget _hakedisSekmesi(List<Istek> onaylilar, Widget? hata) {
+    final renk = Theme.of(context).colorScheme;
+    final ay = _seciliAy.value;
+    double toplam = 0, banka = 0, elden = 0;
+    final ozetler = <String, AylikOzet?>{};
+    for (final i in onaylilar) {
+      final o = _ozet(i.calisanUid, ay);
+      ozetler[i.calisanUid] = o;
+      if (o != null) {
+        toplam += o.net;
+        banka += o.bankaVar ? o.bankaHakedis : 0;
+        elden += o.elden;
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        const AyGezgini(),
+        if (hata != null) hata,
+        if (onaylilar.isEmpty)
+          _bosDurum(Icons.receipt_long_outlined, 'Hakediş yok',
+              'Ekibinize personel ekleyip yoklama girdikçe burada görünür.')
+        else ...[
+          Card(
+            color: renk.primaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(children: [
+                Text('${Bicim.ay(ay)} toplam ödenecek',
+                    style: TextStyle(color: renk.onPrimaryContainer)),
+                const SizedBox(height: 4),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(Bicim.para(toplam),
+                      style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                          color: renk.onPrimaryContainer)),
+                ),
+                Text('Banka ${Bicim.para(banka)}  •  Elden ${Bicim.para(elden)}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12.5, color: renk.onPrimaryContainer)),
+              ]),
+            ),
+          ),
+          for (final i in onaylilar) _hakedisSatiri(i, ozetler[i.calisanUid], ay, renk),
+        ],
+      ],
+    );
+  }
+
+  Widget _hakedisSatiri(Istek i, AylikOzet? o, DateTime ay, ColorScheme renk) {
+    final yuklendi = _veriler.containsKey(i.calisanUid);
+    final fark = _ayFarkSayisi(i.calisanUid, ay);
+    final String alt;
+    if (!yuklendi) {
+      alt = 'Yükleniyor...';
+    } else if (o == null) {
+      alt = 'Maaş bilgisi yok';
+    } else {
+      alt = [
+        '${Bicim.sayi(o.odenenGun)}/30 gün',
+        if (o.mesaiSaat > 0) '${Bicim.sayi(o.mesaiSaat)} sa mesai',
+        if (o.kesilenPazar > 0) '${o.kesilenPazar} pazar kesik',
+      ].join(' • ');
+    }
     return Card(
       child: ListTile(
-        contentPadding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
-        leading: Badge(
-          isLabelVisible: n > 0,
-          backgroundColor: const Color(0xFFEF6C00),
-          label: Text('$n'),
-          child: CircleAvatar(
-            backgroundColor: bugun == null
-                ? renk.secondaryContainer
-                : bugun.durum.pastel(
-                    koyu: Theme.of(context).brightness == Brightness.dark,
-                    zemin: renk.surface),
-            child: bugun == null
-                ? Text(basHarf, style: TextStyle(color: renk.onSecondaryContainer))
-                : Icon(bugun.durum.ikon, color: bugun.durum.renk),
-          ),
-        ),
+        contentPadding: const EdgeInsets.fromLTRB(12, 4, 8, 4),
+        leading: _avatar(i.calisanAd, renk, farkli: fark > 0),
         title: Text(i.calisanAd,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text([if (gorev.isNotEmpty) gorev, altYazi].join('\n'),
-            maxLines: 2, overflow: TextOverflow.ellipsis),
-        isThreeLine: gorev.isNotEmpty,
+        subtitle: Text(
+          fark > 0 ? '$alt\n$fark gün işçinin kaydıyla farklı' : alt,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        isThreeLine: fark > 0,
         trailing: o == null
             ? const Icon(Icons.chevron_right)
             : ConstrainedBox(
@@ -661,8 +718,145 @@ class _PatronDashboardScreenState extends State<PatronDashboardScreen>
                 ),
               ),
         onTap: () => _detayAc(i),
-        onLongPress: () => _listedenCikar(i),
       ),
+    );
+  }
+
+  // ===========================================================================
+  // EKİP
+  // ===========================================================================
+
+  Widget _ekipSekmesi(List<Istek> liste, Widget? hata) {
+    final renk = Theme.of(context).colorScheme;
+    final onaylilar = liste.where((i) => i.onaylandi).toList();
+    final bekleyen = liste.where((i) => i.bekliyor).toList();
+    final reddeden = liste.where((i) => i.reddedildi).toList();
+
+    Widget baslik(String t) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 18, 16, 6),
+          child: Text(t, style: TextStyle(color: renk.primary, fontWeight: FontWeight.w700)),
+        );
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 24),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: FilledButton.icon(
+            onPressed: _personelEkle,
+            icon: const Icon(Icons.person_add_alt_1),
+            label: const Text('Personel Ekle'),
+            style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
+          child: Text(
+            'Elemanınızdan uygulamasındaki Profil sekmesinde yazan kullanıcı kodunu isteyin. '
+            'Kodu girince elemana istek gider; o onaylayınca ekibinize katılır.',
+            style: TextStyle(fontSize: 12.5, color: renk.onSurfaceVariant),
+          ),
+        ),
+        if (hata != null) hata,
+        if (onaylilar.isNotEmpty) baslik('Ekibim (${onaylilar.length})'),
+        for (final i in onaylilar)
+          Card(
+            child: ListTile(
+              leading: _avatar(i.calisanAd, renk),
+              title: Text(i.calisanAd, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(_veriler[i.calisanUid]?.veri.profil?.gorev ?? ''),
+              trailing: PopupMenuButton<String>(
+                onSelected: (s) => s == 'cikar' ? _listedenCikar(i) : _detayAc(i),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'ac', child: Text('Puantajını aç')),
+                  PopupMenuItem(value: 'cikar', child: Text('Ekipten çıkar')),
+                ],
+              ),
+              onTap: () => _detayAc(i),
+            ),
+          ),
+        if (bekleyen.isNotEmpty) baslik('Onay bekleyenler'),
+        for (final i in bekleyen)
+          Card(
+            child: ListTile(
+              leading: const CircleAvatar(child: Icon(Icons.hourglass_top)),
+              title: Text(i.calisanAd),
+              subtitle: Text(
+                  'İstek: ${Bicim.kisaTarih(DateTime.fromMillisecondsSinceEpoch(i.tarih))} • henüz onaylamadı'),
+              trailing: IconButton(
+                tooltip: 'İsteği geri çek',
+                icon: const Icon(Icons.close),
+                onPressed: () => _listedenCikar(i),
+              ),
+            ),
+          ),
+        if (reddeden.isNotEmpty) baslik('Reddedenler'),
+        for (final i in reddeden)
+          Card(
+            child: ListTile(
+              leading: CircleAvatar(
+                  backgroundColor: renk.errorContainer,
+                  child: Icon(Icons.block, color: renk.onErrorContainer)),
+              title: Text(i.calisanAd),
+              subtitle: const Text('İsteği reddetti'),
+              trailing: PopupMenuButton<String>(
+                onSelected: (s) async {
+                  if (s == 'tekrar') {
+                    try {
+                      await Bulut.istekGonder(calisanUid: i.calisanUid, calisanAd: i.calisanAd);
+                    } catch (e) {
+                      if (mounted) _mesaj(e is BulutHatasi ? e.mesaj : 'Hata: $e');
+                    }
+                  } else {
+                    await _listedenCikar(i);
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'tekrar', child: Text('Tekrar iste')),
+                  PopupMenuItem(value: 'sil', child: Text('Listeden çıkar')),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // ===========================================================================
+
+  Widget _avatar(String ad, ColorScheme renk, {bool farkli = false}) {
+    final basHarf = ad
+        .trim()
+        .split(RegExp(r'\s+'))
+        .take(2)
+        .map((s) => s.isEmpty ? '' : s[0])
+        .join()
+        .toUpperCase();
+    return Badge(
+      isLabelVisible: farkli,
+      backgroundColor: _turuncu,
+      smallSize: 10,
+      child: CircleAvatar(
+        backgroundColor: renk.secondaryContainer,
+        child: Text(basHarf, style: TextStyle(color: renk.onSecondaryContainer)),
+      ),
+    );
+  }
+
+  Widget _bosDurum(IconData ikon, String baslik, String aciklama, {Widget? buton}) {
+    final renk = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.all(36),
+      child: Column(children: [
+        Icon(ikon, size: 60, color: renk.outline),
+        const SizedBox(height: 12),
+        Text(baslik, textAlign: TextAlign.center),
+        const SizedBox(height: 6),
+        Text(aciklama,
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12.5, color: renk.onSurfaceVariant)),
+        if (buton != null) ...[const SizedBox(height: 14), buton],
+      ]),
     );
   }
 }

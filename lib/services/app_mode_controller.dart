@@ -17,20 +17,22 @@ extension AppModeX on AppMode {
   String get etiket => this == AppMode.bireysel ? 'Bireysel' : 'Patron';
   String get aciklama => this == AppMode.bireysel
       ? 'Kendi puantajım, hakedişim ve avanslarım'
-      : 'Ekibim, işçi puantajları ve patron puantajı';
+      : 'Ekibimin günlük yoklaması ve hakedişi';
 }
 
 /// Bireysel / Patron modunu yöneten tek nokta (durum yönetimi).
 ///
 ///  - Seçilen mod telefonda saklanır.
-///  - Patron modu sadece yönetici hesabında kullanılabilir (yönetici yetkisi
-///    Firebase konsolundan verilir). Yetki yoksa [etkinMod] her zaman bireyseldir.
-///  - Ekranlar [dinleyici] ile hem mod hem yetki değişimini dinler.
+///  - Patron modunu giriş yapmış herkes açabilir ("Patron ol"). Patron, işçi
+///    onaylamadan kimsenin puantajını göremez (güvenliği Firestore kuralları sağlar).
+///  - Girişsiz kullanımda [etkinMod] her zaman bireyseldir.
+///  - Ekranlar [dinleyici] ile hem mod hem oturum değişimini dinler.
 class AppModeController extends ValueNotifier<AppMode> {
   AppModeController._() : super(AppMode.bireysel);
   static final AppModeController instance = AppModeController._();
 
   static const _kMod = 'uygulamaModu';
+  static const _kPatronAcildi = 'patronAcildi';
 
   SharedPreferences? _prefs;
   bool _secildi = false;
@@ -38,8 +40,11 @@ class AppModeController extends ValueNotifier<AppMode> {
   /// Kullanıcı bir mod seçti mi? (ilk açılışta soru sormak için)
   bool get secildi => _secildi;
 
-  /// Patron modu bu hesapta kullanılabilir mi?
-  bool get patronKullanilabilir => Bulut.yonetici.value;
+  /// Patron modu bu hesapta kullanılabilir mi? (bulut girişi gerekir)
+  bool get patronKullanilabilir => Bulut.aktif && Bulut.oturum.value != null;
+
+  /// Bu telefonda patron modu daha önce açıldı mı? (takvimde kısayol düğmesi)
+  bool get patronAcildi => _prefs?.getBool(_kPatronAcildi) ?? false;
 
   /// Gerçekte çalışan mod
   AppMode get etkinMod =>
@@ -48,7 +53,7 @@ class AppModeController extends ValueNotifier<AppMode> {
   bool get patronModu => etkinMod == AppMode.patron;
 
   /// Mod veya yönetici yetkisi değişince haber verir
-  Listenable get dinleyici => Listenable.merge([this, Bulut.yonetici]);
+  Listenable get dinleyici => Listenable.merge([this, Bulut.oturum]);
 
   void yukle(SharedPreferences prefs) {
     _prefs = prefs;
@@ -61,6 +66,7 @@ class AppModeController extends ValueNotifier<AppMode> {
     _secildi = true;
     value = m;
     await _prefs?.setString(_kMod, m.name);
+    if (m == AppMode.patron) await _prefs?.setBool(_kPatronAcildi, true);
     notifyListeners();
   }
 
@@ -69,5 +75,6 @@ class AppModeController extends ValueNotifier<AppMode> {
     _secildi = false;
     value = AppMode.bireysel;
     await _prefs?.remove(_kMod);
+    await _prefs?.remove(_kPatronAcildi);
   }
 }

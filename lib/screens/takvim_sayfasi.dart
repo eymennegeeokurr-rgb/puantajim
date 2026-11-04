@@ -35,10 +35,11 @@ class TakvimSayfasi extends StatelessWidget {
           ),
         ),
         actions: [
-          // Yönetici hesabıysa Patron moduna geçiş
-          ValueListenableBuilder<bool>(
-            valueListenable: Bulut.yonetici,
-            builder: (context, yon, _) => yon
+          // Bu telefonda patron modu kullanıldıysa hızlı geçiş
+          ListenableBuilder(
+            listenable: AppModeController.instance.dinleyici,
+            builder: (context, _) => AppModeController.instance.patronAcildi &&
+                    AppModeController.instance.patronKullanilabilir
                 ? Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: FilledButton.tonalIcon(

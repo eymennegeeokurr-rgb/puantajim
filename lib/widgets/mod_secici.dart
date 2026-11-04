@@ -2,57 +2,33 @@ import 'package:flutter/material.dart';
 
 import '../services/app_mode_controller.dart';
 
-/// Yönetici hesabı ilk kez açıldığında bir kere sorulur: hangi modda çalışılsın?
-bool _soruluyor = false;
-
-Future<void> modSecimiGerekirseSor(BuildContext context) async {
+/// Patron moduna geçmeden önce kısa açıklama + onay ("Patron ol").
+/// Onaylanırsa modu Patron yapar.
+Future<void> patronOl(BuildContext context) async {
   final m = AppModeController.instance;
-  if (_soruluyor || m.secildi || !m.patronKullanilabilir) return;
-  _soruluyor = true;
-  final secim = await showModalBottomSheet<AppMode>(
-    context: context,
-    isDismissible: false,
-    enableDrag: false,
-    showDragHandle: true,
-    useSafeArea: true,
-    builder: (ctx) => const _ModSecimPaneli(),
-  );
-  _soruluyor = false;
-  await m.ayarla(secim ?? AppMode.bireysel);
-}
-
-class _ModSecimPaneli extends StatelessWidget {
-  const _ModSecimPaneli();
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Uygulamayı nasıl kullanacaksınız?',
-                style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 6),
-            Text('Daha sonra Profil > Uygulama modu bölümünden değiştirebilirsiniz.',
-                style: TextStyle(
-                    fontSize: 12.5, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-            const SizedBox(height: 16),
-            for (final m in AppMode.values) ...[
-              _ModKutusu(
-                mod: m,
-                secili: false,
-                onTap: () => Navigator.pop(context, m),
-              ),
-              const SizedBox(height: 10),
-            ],
-          ],
-        ),
-      ),
-    );
+  if (m.patronAcildi) {
+    await m.ayarla(AppMode.patron);
+    return;
   }
+  final onay = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      icon: const Icon(Icons.groups_outlined, size: 32),
+      title: const Text('Patron moduna geçilsin mi?'),
+      content: const Text(
+        'Patron modunda ekibinizi kurar, her gün yoklama alırsınız. Hakediş sizin '
+        'girdiğiniz günlere göre hesaplanır.\n\n'
+        'Elemanı eklemek için onun kullanıcı kodunu girersiniz; eleman kendi '
+        'telefonundan onaylamadan puantajını göremezsiniz.\n\n'
+        'Kendi puantajınız silinmez, istediğiniz zaman Bireysel moda dönebilirsiniz.',
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Patron Ol')),
+      ],
+    ),
+  );
+  if (onay == true) await m.ayarla(AppMode.patron);
 }
 
 /// Profil sayfasında: Bireysel / Patron modu seçimi
@@ -71,19 +47,22 @@ class ModSeciciKarti extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (final mod in AppMode.values) ...[
-                _ModKutusu(
-                  mod: mod,
-                  secili: m.etkinMod == mod,
-                  pasif: mod == AppMode.patron && !m.patronKullanilabilir,
-                  onTap: () => m.ayarla(mod),
-                ),
-                if (mod != AppMode.values.last) const SizedBox(height: 8),
-              ],
+              _ModKutusu(
+                mod: AppMode.bireysel,
+                secili: m.etkinMod == AppMode.bireysel,
+                onTap: () => m.ayarla(AppMode.bireysel),
+              ),
+              const SizedBox(height: 8),
+              _ModKutusu(
+                mod: AppMode.patron,
+                secili: m.etkinMod == AppMode.patron,
+                pasif: !m.patronKullanilabilir,
+                onTap: () => patronOl(context),
+              ),
               if (!m.patronKullanilabilir) ...[
                 const SizedBox(height: 8),
                 Text(
-                  'Patron modu yönetici hesaplarında açılır. Ekip kuracaksanız yöneticinizle görüşün.',
+                  'Patron modu için hesapla giriş yapmış olmanız gerekir.',
                   style: TextStyle(fontSize: 12, color: renk.onSurfaceVariant),
                 ),
               ],
@@ -115,7 +94,9 @@ class _ModKutusu extends StatelessWidget {
     return Opacity(
       opacity: pasif ? 0.45 : 1,
       child: Material(
-        color: secili ? renk.primaryContainer : renk.surfaceContainerHighest.withValues(alpha: 0.5),
+        color: secili
+            ? renk.primaryContainer
+            : renk.surfaceContainerHighest.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),

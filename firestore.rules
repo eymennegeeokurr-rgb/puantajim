@@ -6,8 +6,9 @@ rules_version = '2';
 // Bu kurallar Firebase SUNUCUSUNDA çalışır. Uygulama kodu değiştirilse bile
 // aşılamaz. Özet:
 //   - Herkes sadece KENDİ verisini okuyup yazabilir.
-//   - Yönetici, sadece ONAY VEREN elemanın verisini OKUYABİLİR (yazamaz).
-//   - Yöneticiler listesi sadece Firebase konsolundan değiştirilebilir.
+//   - Patron (herhangi bir giriş yapmış kullanıcı) koda istek gönderebilir;
+//     sadece ONAY VEREN elemanın verisini OKUYABİLİR (yazamaz).
+//   - Eleman izni istediği an kaldırabilir.
 //   - Telefon numarası hiçbir yerde tutulmaz.
 //
 // Firebase konsolu > Firestore Database > Kurallar (Rules) sekmesine yapıştırıp
@@ -30,9 +31,10 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/yoneticiler/$(request.auth.uid));
     }
 
-    // Yönetici, bu elemanın onayladığı bir isteğe sahip mi?
+    // Patron, bu elemanın onayladığı bir isteğe sahip mi?
     function onayliYonetici(calisanUid) {
-      return yonetici() &&
+      return girisli() &&
+        exists(/databases/$(database)/documents/istekler/$(calisanUid + '_' + request.auth.uid)) &&
         get(/databases/$(database)/documents/istekler/$(calisanUid + '_' + request.auth.uid)).data.durum == 'onaylandi';
     }
 
@@ -87,8 +89,8 @@ service cloud.firestore {
         resource.data.calisanUid == request.auth.uid ||
         resource.data.yoneticiUid == request.auth.uid);
 
-      // Sadece yönetici, kendi adına ve "bekliyor" durumunda istek açabilir
-      allow create: if yonetici()
+      // Giriş yapmış herkes (patron), kendi adına ve "bekliyor" durumunda istek açabilir
+      allow create: if girisli()
         && request.resource.data.yoneticiUid == request.auth.uid
         && id == request.resource.data.calisanUid + '_' + request.auth.uid
         && request.resource.data.durum == 'bekliyor';
@@ -100,8 +102,7 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['durum', 'cevapTarihi'])
           && request.resource.data.durum in ['onaylandi', 'reddedildi'])
         ||
-        (yonetici()
-          && resource.data.yoneticiUid == request.auth.uid
+        (resource.data.yoneticiUid == request.auth.uid
           && request.resource.data.yoneticiUid == request.auth.uid
           && request.resource.data.calisanUid == resource.data.calisanUid
           && request.resource.data.durum == 'bekliyor'

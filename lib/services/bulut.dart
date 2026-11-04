@@ -486,14 +486,23 @@ class Bulut {
     if (!_baglanti) throw const BulutHatasi('İnternet bağlantısı gerekli');
     final ben = oturum.value!;
     if (calisanUid == ben.uid) throw const BulutHatasi('Kendi kodunuzu ekleyemezsiniz');
-    await _db.collection('istekler').doc('${calisanUid}_${ben.uid}').set({
-      'calisanUid': calisanUid,
-      'yoneticiUid': ben.uid,
-      'calisanAd': calisanAd,
-      'yoneticiAd': ben.adSoyad,
-      'durum': 'bekliyor',
-      'tarih': DateTime.now().millisecondsSinceEpoch,
-    });
+    try {
+      await _db.collection('istekler').doc('${calisanUid}_${ben.uid}').set({
+        'calisanUid': calisanUid,
+        'yoneticiUid': ben.uid,
+        'calisanAd': calisanAd,
+        'yoneticiAd': ben.adSoyad,
+        'durum': 'bekliyor',
+        'tarih': DateTime.now().millisecondsSinceEpoch,
+      });
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        throw const BulutHatasi(
+            'İstek gönderilemedi: Firebase kuralları güncel değil. Depodaki firestore.rules '
+            'dosyasını Firebase konsolunda Kurallar sekmesine yapıştırıp Yayınla deyin.');
+      }
+      rethrow;
+    }
   }
 
   static Stream<List<Istek>> gidenIstekler() {
